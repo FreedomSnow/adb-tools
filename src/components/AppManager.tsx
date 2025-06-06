@@ -32,34 +32,8 @@ import {
 } from '@ant-design/icons'
 import { useDevice } from '../contexts/DeviceContext'
 import DeviceSelector from './DeviceSelector'
-
-// 临时类型声明解决编译问题
-declare global {
-  interface Window {
-    adbToolsAPI: {
-      getAdbPath: () => Promise<string>
-      getAppVersion: () => Promise<string>
-      openWin: (arg: string) => Promise<void>
-      execAdbCommand: (command: string) => Promise<{
-        success: boolean
-        data?: string
-        error?: string
-      }>
-      getDevices: () => Promise<{
-        success: boolean
-        data?: string
-        error?: string
-      }>
-      installApk: (fileData: Uint8Array | Buffer, fileName: string, deviceId: string) => Promise<{
-        success: boolean
-        data?: string
-        error?: string
-      }>
-      onMainProcessMessage: (callback: (message: string) => void) => void
-      removeAllListeners: (channel: string) => void
-    }
-  }
-}
+// 导入类型声明
+import '../types/electron.d.ts'
 
 const { Title, Text } = Typography
 const { Search } = Input

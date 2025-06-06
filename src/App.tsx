@@ -21,24 +21,11 @@ import SystemInfo from './components/SystemInfo'
 import CommandExecutor from './components/CommandExecutor'
 import QuickActions from './components/QuickActions'
 import ScreenCapture from './components/ScreenCapture'
+// 导入类型声明
+import './types/electron.d.ts'
 
 const { Header, Sider, Content } = Layout
 const { Title } = Typography
-
-// 声明全局API
-declare global {
-  interface Window {
-    adbToolsAPI: {
-      getAdbPath: () => Promise<string>
-      getAppVersion: () => Promise<string>
-      openWin: (arg: string) => Promise<void>
-      execAdbCommand: (command: string) => Promise<{ success: boolean; data?: string; error?: string }>
-      getDevices: () => Promise<{ success: boolean; data?: string; error?: string }>
-      onMainProcessMessage: (callback: (message: string) => void) => void
-      removeAllListeners: (channel: string) => void
-    }
-  }
-}
 
 type MenuItem = {
   key: string

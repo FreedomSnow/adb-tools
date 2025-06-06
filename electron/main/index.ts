@@ -45,7 +45,8 @@ let win: BrowserWindow | null = null
 // Here, you can also use other preload
 const preload = path.join(__dirname, '../preload/index.js')
 const url = process.env.VITE_DEV_SERVER_URL
-const indexHtml = path.join(process.env.DIST, 'index.html')
+// 修复生产环境下的HTML文件路径
+const indexHtml = path.join(process.env.DIST, 'renderer/index.html')
 
 async function createWindow() {
   win = new BrowserWindow({
@@ -62,17 +63,52 @@ async function createWindow() {
     },
   })
 
+  console.log('Environment variables:')
+  console.log('VITE_DEV_SERVER_URL:', process.env.VITE_DEV_SERVER_URL)
+  console.log('DIST:', process.env.DIST)
+  console.log('Index HTML path:', indexHtml)
+  console.log('App is packaged:', app.isPackaged)
+
   if (url) { // electron-vite-vue#298
+    console.log('Loading development URL:', url)
     win.loadURL(url)
     // Open devTool if the app is not packaged
     win.webContents.openDevTools()
   } else {
-    win.loadFile(indexHtml)
+    console.log('Loading production HTML file:', indexHtml)
+    // 检查文件是否存在
+    const fs = require('fs')
+    if (fs.existsSync(indexHtml)) {
+      console.log('HTML file exists, loading...')
+      win.loadFile(indexHtml)
+    } else {
+      console.error('HTML file does not exist at:', indexHtml)
+      // 尝试其他可能的路径
+      const alternativePath = path.join(__dirname, '../renderer/index.html')
+      console.log('Trying alternative path:', alternativePath)
+      if (fs.existsSync(alternativePath)) {
+        console.log('Alternative path exists, loading...')
+        win.loadFile(alternativePath)
+      } else {
+        console.error('Alternative path also does not exist')
+      }
+    }
   }
 
   // Test actively push message to the Electron-Renderer
   win.webContents.on('did-finish-load', () => {
+    console.log('Window finished loading')
     win?.webContents.send('main-process-message', new Date().toLocaleString())
+  })
+
+  // 添加加载失败处理
+  win.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    console.error('Failed to load:', {
+      errorCode,
+      errorDescription,
+      validatedURL,
+      isMainFrame
+    })
   })
 
   // Make all links open with the browser, not with the application

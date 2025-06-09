@@ -12,7 +12,9 @@
 ### 特性
 - ✅ 支持多平台构建 (Linux, Windows, macOS)
 - ✅ macOS构建完全免费 (公共仓库)
-- ✅ 支持多Node.js版本 (18, 20)
+- ✅ 支持多Node.js版本测试 (18, 20)
+- ✅ 使用最新的Actions (upload/download-artifact@v4)
+- ✅ 优化的构建流程 (仅Node.js 20用于发布)
 - ✅ 自动构建和发布
 - ✅ 构建产物自动上传
 - ✅ 与GitHub深度集成
@@ -165,6 +167,17 @@ npm run build:mac
 3. **Windows构建失败**
    - 确保安装了Python 3.8+
    - 确保安装了Visual Studio Build Tools
+
+4. **GitHub Actions artifact错误**
+   ```
+   Error: This request has been automatically failed because it uses 
+   a deprecated version of `actions/upload-artifact: v3`
+   ```
+   **解决方案**: 已更新到v4版本，确保使用最新的workflow配置
+
+5. **构建矩阵优化**
+   - 测试在所有Node.js版本上运行 (18, 20)
+   - 实际构建仅在Node.js 20上执行，避免重复和资源浪费
 
 ### 日志查看
 

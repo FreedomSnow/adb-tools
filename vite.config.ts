@@ -45,7 +45,18 @@ export default defineConfig({
   ],
   build: {
     outDir: 'dist/renderer',
-    emptyOutDir: true
+    emptyOutDir: true,
+    sourcemap: false,
+    minify: 'esbuild',
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          antd: ['antd', '@ant-design/icons'],
+        }
+      }
+    }
   },
   resolve: {
     alias: {

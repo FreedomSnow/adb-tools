@@ -14,7 +14,6 @@ jobs:
       matrix:
         # GitHub Actions支持免费的macOS构建（公共仓库）
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: [18, 20]
 
     runs-on: ${{ matrix.os }}
 
@@ -25,7 +24,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: ${{ matrix.node-version }}
+        node-version: 20
         cache: 'npm'
 
     - name: Install dependencies
@@ -33,23 +32,20 @@ jobs:
         npm ci
         npm run download-adb
 
-    - name: Build application
-      run: npm run electron:build
-
     - name: Build for Linux
-      if: matrix.os == 'ubuntu-latest' && matrix.node-version == 20
+      if: matrix.os == 'ubuntu-latest'
       run: npm run build:linux
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Build for macOS
-      if: matrix.os == 'macos-latest' && matrix.node-version == 20
+    - name: Build for macOS (ARM64 only)
+      if: matrix.os == 'macos-latest'
       run: npm run build:mac
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build for Windows
-      if: matrix.os == 'windows-latest' && matrix.node-version == 20
+      if: matrix.os == 'windows-latest'
       run: npm run build:win
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -57,10 +53,8 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: build-${{ matrix.os }}-node${{ matrix.node-version }}
+        name: build-${{ matrix.os }}
         path: release/
-      # 只上传 Node.js 20 的构建结果用于发布
-      if: matrix.node-version == 20
 
   release:
     needs: build
@@ -89,6 +83,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: release-files/*
-        draft: true
+        draft: false
+        generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

@@ -179,6 +179,24 @@ npm run build:mac
    - 测试在所有Node.js版本上运行 (18, 20)
    - 实际构建仅在Node.js 20上执行，避免重复和资源浪费
 
+6. **GitHub Token错误**
+   ```
+   ⨯ GitHub Personal Access Token is not set, neither programmatically, nor using env "GH_TOKEN"
+   ```
+   **解决方案**: 已在构建步骤中添加`GH_TOKEN`环境变量，并设置`publish: null`防止自动发布
+
+7. **作者信息缺失**
+   ```
+   author is missed in the package.json
+   ```
+   **解决方案**: 已在package.json中添加author字段
+
+8. **应用图标警告**
+   ```
+   default Electron icon is used  reason=application icon is not set
+   ```
+   **解决方案**: 暂时移除图标配置，使用默认图标。如需自定义图标，请在resources目录添加图标文件
+
 ### 日志查看
 
 - **GitHub Actions**: 在Actions页签查看详细日志

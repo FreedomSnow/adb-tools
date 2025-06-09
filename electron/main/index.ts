@@ -200,6 +200,127 @@ ipcMain.handle('open-win', (_, arg) => {
   }
 })
 
+// ADB命令队列管理，防止过多并发导致系统卡顿
+class ADBCommandQueue {
+  private queue: Array<() => Promise<any>> = []
+  private running = false
+  private concurrency = 0
+  private maxConcurrency: number
+  private name: string
+
+  constructor(name: string, maxConcurrency: number = 3) {
+    this.name = name
+    this.maxConcurrency = maxConcurrency
+  }
+
+  async add<T>(command: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      this.queue.push(async () => {
+        try {
+          console.log(`[${this.name}队列] 开始执行命令，当前并发: ${this.concurrency}/${this.maxConcurrency}`)
+          const result = await command()
+          resolve(result)
+        } catch (error) {
+          reject(error)
+        }
+      })
+      
+      console.log(`[${this.name}队列] 添加任务，队列长度: ${this.queue.length}`)
+      this.process()
+    })
+  }
+
+  private async process() {
+    if (this.running || this.concurrency >= this.maxConcurrency) {
+      return
+    }
+    
+    if (this.queue.length === 0) {
+      return
+    }
+
+    this.running = true
+    
+    // 启动所有可能的并发任务
+    while (this.queue.length > 0 && this.concurrency < this.maxConcurrency) {
+      const command = this.queue.shift()
+      if (command) {
+        this.concurrency++
+        console.log(`[${this.name}队列] 启动任务，当前并发: ${this.concurrency}/${this.maxConcurrency}，剩余队列: ${this.queue.length}`)
+        
+        // 异步执行命令，不阻塞其他命令的启动
+        command().finally(() => {
+          this.concurrency--
+          console.log(`[${this.name}队列] 任务完成，当前并发: ${this.concurrency}/${this.maxConcurrency}，剩余队列: ${this.queue.length}`)
+          
+          // 如果还有任务且有空闲槽位，继续处理
+          if (this.queue.length > 0 && this.concurrency < this.maxConcurrency) {
+            setTimeout(() => {
+              this.running = false
+              this.process()
+            }, 10)
+          } else if (this.concurrency === 0) {
+            this.running = false
+          }
+        })
+      }
+    }
+    
+    // 如果没有启动任何任务，重置running状态
+    if (this.concurrency === 0) {
+      this.running = false
+    }
+  }
+
+  // 获取队列状态
+  getStatus() {
+    return {
+      name: this.name,
+      queueLength: this.queue.length,
+      concurrency: this.concurrency,
+      maxConcurrency: this.maxConcurrency
+    }
+  }
+}
+
+// 创建不同优先级的队列
+const fastQueue = new ADBCommandQueue('快速', 2)      // 设备管理、连接等核心功能
+const normalQueue = new ADBCommandQueue('普通', 2)    // 日志查看、单个命令等
+const bulkQueue = new ADBCommandQueue('批量', 4)      // 应用管理、文件管理等批量操作
+
+// 根据命令类型选择合适的队列
+function selectQueue(command: string): ADBCommandQueue {
+  // 快速队列 - 优先级最高的核心功能
+  if (command.includes('devices') || 
+      command.includes('connect') || 
+      command.includes('disconnect') ||
+      command.includes('tcpip') ||
+      command.includes('getprop ro.build.version') ||
+      command.includes('getprop ro.product.manufacturer') ||
+      command.includes('getprop ro.build.version.sdk')) {
+    return fastQueue
+  }
+  
+  // 批量队列 - 可能产生大量命令的操作（文件管理和应用管理）
+  if (command.includes('shell ls') ||
+      command.includes('shell pm list') ||
+      command.includes('shell pm path') ||
+      command.includes('shell pm dump') ||
+      command.includes('shell dumpsys package') ||
+      command.includes('shell stat') ||
+      command.includes('shell find') ||
+      command.includes('shell du') ||
+      command.includes('push') ||
+      command.includes('pull') ||
+      // 应用管理相关的包查询命令
+      command.match(/shell pm path com\./)) {
+    return bulkQueue
+  }
+  
+  // 普通队列 - 默认队列（单个命令、logcat等）
+  return normalQueue
+}
+
 // IPC handlers for ADB operations
 ipcMain.handle('get-adb-path', () => {
   // 获取打包后的ADB路径
@@ -212,29 +333,34 @@ ipcMain.handle('get-adb-path', () => {
 
 // 执行ADB命令
 ipcMain.handle('exec-adb-command', async (_, command: string) => {
-  try {
-    const adbPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-      : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-    
-    // 处理命令：如果命令以 "adb" 开头，去掉 "adb" 前缀
-    let processedCommand = command.trim()
-    if (processedCommand.startsWith('adb ')) {
-      processedCommand = processedCommand.substring(4) // 去掉 "adb " 前缀
-    } else if (processedCommand === 'adb') {
-      processedCommand = '' // 如果只是 "adb"，则清空命令
-    }
-    
-    const fullCommand = processedCommand 
-      ? `"${adbPath}" ${processedCommand}`
-      : `"${adbPath}"`
-    
-    console.log('执行命令:', fullCommand)
-    
-    const { stdout, stderr } = await execAsync(fullCommand, { 
-      timeout: 30000,
-      maxBuffer: 1024 * 1024 * 10 // 10MB buffer
-    })
+  // 根据命令类型选择合适的队列
+  const selectedQueue = selectQueue(command)
+  console.log(`命令 "${command}" 被分配到 ${selectedQueue.getStatus().name} 队列`)
+  
+  return selectedQueue.add(async () => {
+    try {
+      const adbPath = app.isPackaged
+        ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+        : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+      
+      // 处理命令：如果命令以 "adb" 开头，去掉 "adb" 前缀
+      let processedCommand = command.trim()
+      if (processedCommand.startsWith('adb ')) {
+        processedCommand = processedCommand.substring(4) // 去掉 "adb " 前缀
+      } else if (processedCommand === 'adb') {
+        processedCommand = '' // 如果只是 "adb"，则清空命令
+      }
+      
+      const fullCommand = processedCommand 
+        ? `"${adbPath}" ${processedCommand}`
+        : `"${adbPath}"`
+      
+      console.log('执行命令:', fullCommand)
+      
+      const { stdout, stderr } = await execAsync(fullCommand, { 
+        timeout: 30000,
+        maxBuffer: 1024 * 1024 * 10 // 10MB buffer
+      })
     
     // 改进错误检测逻辑
     const isShellCommand = command.includes('shell')
@@ -274,42 +400,121 @@ ipcMain.handle('exec-adb-command', async (_, command: string) => {
       }
     }
     
-    return { success: true, data: stdout.trim() }
-  } catch (error: any) {
-    console.error('ADB命令执行失败:', error)
-    return { success: false, error: error.message }
-  }
+      return { success: true, data: stdout.trim() }
+    } catch (error: any) {
+      console.error('ADB命令执行失败:', error)
+      return { success: false, error: error.message }
+    }
+  })
 })
 
-// 获取设备列表
-ipcMain.handle('get-devices', async () => {
+// 重启ADB服务器
+ipcMain.handle('restart-adb-server', async () => {
   try {
     const adbPath = app.isPackaged
       ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
       : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
     
-    const fullCommand = `"${adbPath}" devices -l`
-    console.log('获取设备列表:', fullCommand)
+    console.log('正在重启ADB服务器...')
     
-    const { stdout, stderr } = await execAsync(fullCommand, { 
+    // 先停止ADB服务器
+    try {
+      const killCommand = `"${adbPath}" kill-server`
+      console.log('停止ADB服务器:', killCommand)
+      await execAsync(killCommand, { timeout: 5000 })
+      console.log('ADB服务器已停止')
+    } catch (error) {
+      console.log('停止ADB服务器时出现错误（可能服务器已经停止）:', error)
+    }
+    
+    // 等待一秒钟确保服务器完全停止
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    
+    // 启动ADB服务器
+    const startCommand = `"${adbPath}" start-server`
+    console.log('启动ADB服务器:', startCommand)
+    const { stdout, stderr } = await execAsync(startCommand, { 
       timeout: 10000,
       maxBuffer: 1024 * 1024
     })
     
-    if (stderr && !stderr.includes('Warning')) {
-      throw new Error(stderr)
-    }
+    console.log('ADB服务器启动结果 - stdout:', stdout)
+    console.log('ADB服务器启动结果 - stderr:', stderr)
     
-    return { success: true, data: stdout.trim() }
+    return { success: true, data: 'ADB服务器重启成功' }
   } catch (error: any) {
-    console.error('获取设备列表失败:', error)
+    console.error('重启ADB服务器失败:', error)
     return { success: false, error: error.message }
   }
+})
+
+// 获取设备列表 - 使用快速队列避免被批量操作阻塞
+ipcMain.handle('get-devices', async () => {
+  // 使用快速队列，确保设备列表获取不会被批量操作阻塞
+  console.log('设备列表获取使用快速队列')
+  return fastQueue.add(async () => {
+    try {
+      const adbPath = app.isPackaged
+        ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+        : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+      
+      const fullCommand = `"${adbPath}" devices -l`
+      console.log('执行命令:', fullCommand)
+      
+      const { stdout, stderr } = await execAsync(fullCommand, { 
+        timeout: 10000,
+        maxBuffer: 1024 * 1024
+      })
+      
+      // 检查是否有端口占用或ADB服务器启动问题
+      if (stderr) {
+        if (stderr.includes('Address already in use') || 
+            stderr.includes('failed to start daemon') ||
+            stderr.includes('cannot connect to daemon')) {
+          
+          console.log('检测到ADB服务器问题，尝试重启...')
+          
+          // 尝试重启ADB服务器
+          try {
+            await execAsync(`"${adbPath}" kill-server`, { timeout: 5000 })
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            await execAsync(`"${adbPath}" start-server`, { timeout: 10000 })
+            
+            // 重新尝试获取设备列表
+            const retryResult = await execAsync(fullCommand, { 
+              timeout: 10000,
+              maxBuffer: 1024 * 1024
+            })
+            
+            return { success: true, data: retryResult.stdout.trim() }
+          } catch (retryError: any) {
+            throw new Error(`ADB服务器重启失败: ${retryError.message}`)
+          }
+        } else if (!stderr.includes('Warning') && !stderr.includes('daemon started successfully')) {
+          throw new Error(stderr)
+        }
+      }
+      
+      return { success: true, data: stdout.trim() }
+    } catch (error: any) {
+      console.error('ADB命令执行失败:', error)
+      return { success: false, error: error.message }
+    }
+  })
 })
 
 // Security: prevent new window creation
 ipcMain.handle('app-version', () => {
   return app.getVersion()
+})
+
+// 获取队列状态
+ipcMain.handle('get-queue-status', () => {
+  return {
+    fast: fastQueue.getStatus(),
+    normal: normalQueue.getStatus(),
+    bulk: bulkQueue.getStatus()
+  }
 })
 
 // 安装APK

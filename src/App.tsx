@@ -21,6 +21,7 @@ import SystemInfo from './components/SystemInfo'
 import CommandExecutor from './components/CommandExecutor'
 import QuickActions from './components/QuickActions'
 import ScreenCapture from './components/ScreenCapture'
+import QueueMonitor from './components/QueueMonitor'
 // 导入类型声明
 import './types/electron.d.ts'
 
@@ -137,6 +138,7 @@ function App() {
               </span>
             </div>
             <Space>
+              <QueueMonitor />
               <span style={{ fontSize: '12px', color: '#999' }}>
                 版本: {appVersion || '1.0.0'}
               </span>

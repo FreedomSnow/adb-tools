@@ -65,6 +65,12 @@ const adbToolsAPI = {
   // 获取设备列表
   getDevices: () => ipcRenderer.invoke('get-devices'),
   
+  // 重启ADB服务器
+  restartAdbServer: () => ipcRenderer.invoke('restart-adb-server'),
+  
+  // 获取队列状态
+  getQueueStatus: () => ipcRenderer.invoke('get-queue-status'),
+  
   // 安装APK
   installApk: (fileData: Uint8Array | Buffer, fileName: string, deviceId: string) => ipcRenderer.invoke('install-apk', fileData, fileName, deviceId),
   

@@ -24,6 +24,20 @@ interface AdbToolsAPI {
     error?: string
   }>
   
+  // 重启ADB服务器
+  restartAdbServer: () => Promise<{
+    success: boolean
+    data?: string
+    error?: string
+  }>
+  
+  // 获取队列状态
+  getQueueStatus: () => Promise<{
+    fast: { name: string; queueLength: number; concurrency: number; maxConcurrency: number }
+    normal: { name: string; queueLength: number; concurrency: number; maxConcurrency: number }
+    bulk: { name: string; queueLength: number; concurrency: number; maxConcurrency: number }
+  }>
+  
   // 安装APK
   installApk: (fileData: Uint8Array | Buffer, fileName: string, deviceId: string) => Promise<{
     success: boolean

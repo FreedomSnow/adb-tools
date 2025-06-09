@@ -17,7 +17,9 @@ import {
   Col,
   Tabs,
   List,
-  Avatar
+  Avatar,
+  Switch,
+  Alert
 } from 'antd'
 import { 
   AppstoreOutlined,
@@ -28,7 +30,8 @@ import {
   SearchOutlined,
   AndroidOutlined,
   PlayCircleOutlined,
-  StopOutlined
+  StopOutlined,
+  BugOutlined
 } from '@ant-design/icons'
 import { useDevice } from '../contexts/DeviceContext'
 import DeviceSelector from './DeviceSelector'
@@ -67,6 +70,10 @@ const AppManager: React.FC = () => {
   const [filterType, setFilterType] = useState<'all' | 'user' | 'system'>('all')
   const [uploadProgress, setUploadProgress] = useState(0)
   const [installing, setInstalling] = useState(false)
+  const [debugMode, setDebugMode] = useState(false)
+  const [debugLogs, setDebugLogs] = useState<string[]>([])
+  const [loadingProgress, setLoadingProgress] = useState(0)
+  const [cancelLoading, setCancelLoading] = useState(false)
 
   useEffect(() => {
     if (selectedDevice && selectedDevice.status === 'device') {
@@ -117,6 +124,9 @@ const AppManager: React.FC = () => {
     }
 
     setLoading(true)
+    setLoadingProgress(0)
+    setCancelLoading(false)
+    
     try {
       // 获取已安装的应用包名列表
       const packagesResult = await window.adbToolsAPI.execAdbCommand(`-s ${selectedDevice.id} shell pm list packages`)
@@ -127,66 +137,154 @@ const AppManager: React.FC = () => {
 
       const packages = packagesResult.data?.split('\n')
         .filter(line => line.startsWith('package:'))
-        .map(line => line.replace('package:', ''))
-        // 移除数量限制，显示所有应用
+        .map(line => line.replace('package:', '').trim())
+        .filter(pkg => pkg.length > 0) // 过滤空包名
       
       if (!packages?.length) {
         setInstalledApps([])
         setLoading(false)
+        setLoadingProgress(0)
+        message.info('设备上未找到已安装的应用')
         return
       }
 
-      // 获取应用详细信息
-      const appsWithDetails = await Promise.all(
-        packages.map(async (packageName) => {
-          try {
-            const appInfo = await getAppDetails(packageName)
-            return appInfo
-          } catch (error) {
-            console.error(`获取应用详情失败: ${packageName}`, error)
-            return null
-          }
-        })
-      )
+      console.log(`找到 ${packages.length} 个应用包，开始获取详细信息...`)
 
-      const validApps = appsWithDetails.filter(app => app !== null) as AppInfo[]
-      setInstalledApps(validApps)
+      // 大幅减少批次大小和增加延迟，防止UI卡顿
+      const BATCH_SIZE = 3  // 减少到3个
+      const DELAY_BETWEEN_BATCHES = 300  // 增加延迟到300ms
+      const validApps: AppInfo[] = []
+      let processedCount = 0
+
+      // 使用更保守的分批策略
+      for (let i = 0; i < packages.length; i += BATCH_SIZE) {
+        const batch = packages.slice(i, i + BATCH_SIZE)
+        
+        try {
+          // 串行处理批次内的每个应用，避免并发过多
+          for (const packageName of batch) {
+            // 检查是否取消加载
+            if (cancelLoading) {
+              console.log('用户取消加载')
+              setLoading(false)
+              setLoadingProgress(0)
+              return
+            }
+            
+            try {
+              const appInfo = await getAppDetails(packageName)
+              if (appInfo) {
+                validApps.push(appInfo)
+                
+                // 每获取一个应用就更新UI，提供更好的响应性
+                setInstalledApps([...validApps])
+                
+                // 小延迟，让UI有时间响应
+                await new Promise(resolve => setTimeout(resolve, 50))
+              }
+            } catch (error) {
+              console.warn(`获取应用详情失败: ${packageName}`, error)
+            }
+            
+            processedCount++
+            
+            // 更新进度
+            const progress = Math.round((processedCount / packages.length) * 100)
+            setLoadingProgress(progress)
+            
+            // 每10个应用显示一次进度
+            if (processedCount % 10 === 0) {
+              console.log(`已处理 ${processedCount}/${packages.length} 个应用 (${progress}%)`)
+            }
+          }
+
+          // 批次间的较长延迟，确保UI响应性
+          if (i + BATCH_SIZE < packages.length) {
+            await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES))
+          }
+
+        } catch (batchError) {
+          console.error(`批次处理出错 (${i}-${i + BATCH_SIZE}):`, batchError)
+          // 继续处理下一批
+        }
+      }
+
       setLoading(false)
+      setLoadingProgress(100)
       
-      // 只在成功获取到应用时显示提示
       if (validApps.length > 0) {
         message.success(`从设备 ${selectedDevice.model} 获取到 ${validApps.length} 个应用`)
+        console.log(`应用加载完成，共 ${validApps.length} 个有效应用`)
+      } else {
+        message.warning('未能获取到有效的应用信息')
       }
+      
+      // 重置进度
+      setTimeout(() => setLoadingProgress(0), 2000)
+      
     } catch (error: any) {
       console.error('获取应用列表失败:', error)
       message.error(`获取应用列表失败: ${error.message}`)
       setLoading(false)
+      setLoadingProgress(0)
     }
   }
 
   // 获取应用详细信息
   const getAppDetails = async (packageName: string): Promise<AppInfo | null> => {
+    const addDebugLog = (log: string) => {
+      if (debugMode) {
+        setDebugLogs(prev => [...prev.slice(-49), `[${new Date().toLocaleTimeString()}] ${log}`])
+      }
+    }
+
     try {
-      const [pathResult, versionResult] = await Promise.all([
+      addDebugLog(`开始获取应用信息: ${packageName}`)
+      
+      // 首先检查应用是否存在
+      const packageExistsResult = await window.adbToolsAPI.execAdbCommand(`-s ${selectedDevice!.id} shell pm list packages ${packageName}`)
+      
+      if (!packageExistsResult.success || !packageExistsResult.data?.includes(packageName)) {
+        addDebugLog(`应用包 ${packageName} 不存在，跳过获取详细信息`)
+        return null
+      }
+
+      addDebugLog(`应用包 ${packageName} 存在，继续获取详细信息`)
+
+      // 并行获取应用信息，并添加更好的错误处理
+      const [pathResult, versionResult] = await Promise.allSettled([
         window.adbToolsAPI.execAdbCommand(`-s ${selectedDevice!.id} shell pm path ${packageName}`),
         window.adbToolsAPI.execAdbCommand(`-s ${selectedDevice!.id} shell dumpsys package ${packageName} | grep versionName`)
       ])
 
-      // 获取应用路径来判断是否为系统应用
-      const isSystemApp = !!(pathResult.success && pathResult.data?.includes('/system/'))
+      // 处理路径信息
+      let isSystemApp = false
+      if (pathResult.status === 'fulfilled' && pathResult.value.success && pathResult.value.data) {
+        isSystemApp = pathResult.value.data.includes('/system/')
+        addDebugLog(`获取应用路径成功: ${packageName} (系统应用: ${isSystemApp})`)
+      } else if (pathResult.status === 'rejected') {
+        addDebugLog(`获取应用路径失败: ${packageName} - ${pathResult.reason}`)
+      } else if (pathResult.status === 'fulfilled' && !pathResult.value.success) {
+        addDebugLog(`获取应用路径失败: ${packageName} - ${pathResult.value.error}`)
+      }
       
-      // 提取版本信息
+      // 处理版本信息
       let version = '未知'
       let versionCode = '未知'
-      if (versionResult.success && versionResult.data) {
-        const versionMatch = versionResult.data.match(/versionName=([^\s]+)/)
+      if (versionResult.status === 'fulfilled' && versionResult.value.success && versionResult.value.data) {
+        const versionMatch = versionResult.value.data.match(/versionName=([^\s]+)/)
         if (versionMatch) {
           version = versionMatch[1]
         }
-        const codeMatch = versionResult.data.match(/versionCode=(\d+)/)
+        const codeMatch = versionResult.value.data.match(/versionCode=(\d+)/)
         if (codeMatch) {
           versionCode = codeMatch[1]
         }
+        addDebugLog(`获取应用版本成功: ${packageName} v${version} (${versionCode})`)
+      } else if (versionResult.status === 'rejected') {
+        addDebugLog(`获取应用版本失败: ${packageName} - ${versionResult.reason}`)
+      } else if (versionResult.status === 'fulfilled' && !versionResult.value.success) {
+        addDebugLog(`获取应用版本失败: ${packageName} - ${versionResult.value.error}`)
       }
 
       // 获取应用名称（简化处理）
@@ -481,9 +579,21 @@ const AppManager: React.FC = () => {
   ]
 
   const refreshApps = async () => {
+    // 如果正在加载，先取消当前加载
+    if (loading) {
+      setCancelLoading(true)
+      await new Promise(resolve => setTimeout(resolve, 500)) // 等待取消生效
+    }
+    
     // 清空现有数据，强制重新加载
     setInstalledApps([])
+    setCancelLoading(false)
     await loadInstalledApps()
+  }
+
+  const cancelAppLoading = () => {
+    setCancelLoading(true)
+    message.info('正在取消加载...')
   }
 
   return (
@@ -515,6 +625,17 @@ const AppManager: React.FC = () => {
               刷新
             </Button>
           </Col>
+          {loading && (
+            <Col>
+              <Button 
+                type="default"
+                danger
+                onClick={cancelAppLoading}
+              >
+                取消加载
+              </Button>
+            </Col>
+          )}
         </Row>
       </div>
 
@@ -535,6 +656,30 @@ const AppManager: React.FC = () => {
         </Card>
       )}
 
+      {loading && loadingProgress > 0 && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Space align="center">
+              <Text>正在加载应用列表...</Text>
+              <Text type="secondary">({installedApps.length} 个应用已加载)</Text>
+              <Button 
+                type="link" 
+                size="small"
+                danger 
+                onClick={cancelAppLoading}
+              >
+                取消
+              </Button>
+            </Space>
+            <Progress 
+              percent={loadingProgress}
+              status={cancelLoading ? 'exception' : 'active'}
+              format={(percent) => `${percent}%`}
+            />
+          </Space>
+        </Card>
+      )}
+
       <Card>
         {/* 过滤控制面板 */}
         <div style={{ marginBottom: 16, padding: '12px', background: '#fafafa', borderRadius: '6px' }}>
@@ -549,7 +694,7 @@ const AppManager: React.FC = () => {
                 allowClear
               />
             </Col>
-            <Col span={6}>
+            <Col span={5}>
               <Text strong>应用类型:</Text>
               <Select 
                 value={filterType} 
@@ -561,7 +706,7 @@ const AppManager: React.FC = () => {
                 <Option value="system">系统应用</Option>
               </Select>
             </Col>
-            <Col span={6}>
+            <Col span={4}>
               <Space direction="vertical" size="small">
                 <Text strong>统计信息</Text>
                 <Text type="secondary">
@@ -569,7 +714,7 @@ const AppManager: React.FC = () => {
                 </Text>
               </Space>
             </Col>
-            <Col span={4}>
+            <Col span={3}>
               <Space direction="vertical" size="small">
                 <Text strong>当前设备</Text>
                 <Text type="secondary">
@@ -577,8 +722,69 @@ const AppManager: React.FC = () => {
                 </Text>
               </Space>
             </Col>
+            <Col span={4}>
+              <Space direction="vertical" size="small">
+                <Space>
+                  <BugOutlined />
+                  <Text strong>调试模式</Text>
+                </Space>
+                <Switch
+                  checked={debugMode}
+                  onChange={setDebugMode}
+                  size="small"
+                />
+              </Space>
+            </Col>
           </Row>
         </div>
+
+        {/* 调试日志面板 */}
+        {debugMode && (
+          <Alert
+            message="调试模式已启用"
+            description={
+              <div>
+                <Text type="secondary">实时显示ADB命令执行详情，帮助排查问题</Text>
+                {debugLogs.length > 0 && (
+                  <div style={{ 
+                    marginTop: 8, 
+                    maxHeight: '200px', 
+                    overflow: 'auto', 
+                    background: '#f5f5f5', 
+                    padding: '8px', 
+                    borderRadius: '4px',
+                    fontFamily: 'Monaco, Menlo, Consolas, monospace',
+                    fontSize: '12px'
+                  }}>
+                    {debugLogs.map((log, index) => (
+                      <div key={index} style={{ marginBottom: '2px' }}>
+                        {log}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {debugLogs.length === 0 && (
+                  <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                    等待ADB命令执行...
+                  </Text>
+                )}
+                <Button 
+                  size="small" 
+                  type="link" 
+                  onClick={() => setDebugLogs([])}
+                  style={{ padding: 0, marginTop: 4 }}
+                >
+                  清空日志
+                </Button>
+              </div>
+            }
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            closable
+            onClose={() => setDebugMode(false)}
+          />
+        )}
 
         <Table
           columns={columns}

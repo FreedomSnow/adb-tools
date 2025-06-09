@@ -11,7 +11,7 @@ node_js:
 # 操作系统矩阵
 os:
   - linux
-  - osx
+  # - osx  # macOS构建暂时不支持，需要付费账户
   - windows
 
 # 构建矩阵配置
@@ -31,11 +31,13 @@ matrix:
             - libasound2-dev
       env: BUILD_TARGET=linux
       
-    # macOS 构建
-    - os: osx
-      osx_image: xcode12.5
-      node_js: "20"
-      env: BUILD_TARGET=mac
+    # macOS 构建暂时注释 - 原因：
+    # 1. Travis CI在免费计划中不支持macOS构建
+    # 2. 需要升级到付费计划才能使用macOS构建环境
+    # - os: osx
+    #   osx_image: xcode12.5
+    #   node_js: "20"
+    #   env: BUILD_TARGET=mac
       
     # Windows 构建
     - os: windows
@@ -194,10 +196,11 @@ jobs:
       os: linux
       script: npm run build:linux
       
-    - stage: build
-      name: "macOS Build"
-      os: osx
-      script: npm run build:mac
+    # macOS构建暂时注释 - Travis CI免费计划不支持macOS
+    # - stage: build
+    #   name: "macOS Build"
+    #   os: osx
+    #   script: npm run build:mac
       
     - stage: build
       name: "Windows Build"

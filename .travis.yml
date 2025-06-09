@@ -1,0 +1,211 @@
+# ADB Tools - Travis CI 配置文件
+# 支持 Linux, macOS, Windows 多平台构建
+
+language: node_js
+
+# Node.js 版本矩阵
+node_js:
+  - "18"
+  - "20"
+
+# 操作系统矩阵
+os:
+  - linux
+  - osx
+  - windows
+
+# 构建矩阵配置
+matrix:
+  include:
+    # Linux 构建
+    - os: linux
+      dist: focal
+      node_js: "20"
+      addons:
+        apt:
+          packages:
+            - libnss3-dev
+            - libatk-bridge2.0-dev
+            - libgtk-3-dev
+            - libxss1
+            - libasound2-dev
+      env: BUILD_TARGET=linux
+      
+    # macOS 构建
+    - os: osx
+      osx_image: xcode12.5
+      node_js: "20"
+      env: BUILD_TARGET=mac
+      
+    # Windows 构建
+    - os: windows
+      node_js: "20"
+      env: BUILD_TARGET=win
+
+# 允许某些构建失败
+allow_failures:
+  - os: windows
+    node_js: "18"
+
+# 缓存配置
+cache:
+  directories:
+    - node_modules
+    - $HOME/.cache/electron
+    - $HOME/.cache/electron-builder
+    - $HOME/.npm
+    - resources/adb
+
+# 环境变量
+env:
+  global:
+    - FORCE_COLOR=1  # 强制彩色输出
+    - CI=true
+    - NODE_ENV=test
+    - ELECTRON_CACHE=$HOME/.cache/electron
+    - ELECTRON_BUILDER_CACHE=$HOME/.cache/electron-builder
+
+# 构建前准备
+before_install:
+  # Windows 特殊配置
+  - |
+    if [ "$TRAVIS_OS_NAME" = "windows" ]; then 
+      choco install python --version 3.8.5
+      export PATH="/c/Python38:/c/Python38/Scripts:$PATH"
+      python -m pip install --upgrade pip
+    fi
+  
+  # macOS 特殊配置
+  - |
+    if [ "$TRAVIS_OS_NAME" = "osx" ]; then
+      brew update
+    fi
+  
+  # Linux 特殊配置
+  - |
+    if [ "$TRAVIS_OS_NAME" = "linux" ]; then
+      export DISPLAY=:99.0
+      sh -e /etc/init.d/xvfb start
+      sleep 3
+    fi
+
+# 安装依赖
+install:
+  - echo "Node.js version:"
+  - node --version
+  - echo "NPM version:"
+  - npm --version
+  - npm ci
+  - npm run download-adb
+  - echo "Build target: $BUILD_TARGET"
+  - echo "OS: $TRAVIS_OS_NAME"
+
+# 构建脚本
+script:
+  # TypeScript 编译检查
+  - npm run electron:build
+  
+  # 运行测试（如果有测试脚本的话）
+  # - npm test
+  
+  # 根据平台构建对应的安装包
+  - |
+    if [ "$BUILD_TARGET" = "linux" ]; then
+      npm run build:linux
+    elif [ "$BUILD_TARGET" = "mac" ]; then
+      npm run build:mac
+    elif [ "$BUILD_TARGET" = "win" ]; then
+      npm run build:win
+    else
+      npm run build:dir  # 默认构建目录版本
+    fi
+
+# 构建成功后的操作
+after_success:
+  - echo "Build completed successfully!"
+  - ls -la release/ || true
+
+# 构建失败后的操作
+after_failure:
+  - echo "Build failed!"
+  - cat npm-debug.log 2>/dev/null || true
+
+# 部署配置（发布到 GitHub Releases）
+deploy:
+  provider: releases
+  api_key: $GITHUB_TOKEN
+  file_glob: true
+  file: 
+    - "release/*.exe"     # Windows 安装包
+    - "release/*.dmg"     # macOS 安装包
+    - "release/*.AppImage" # Linux 安装包
+    - "release/*.zip"     # 压缩包
+    - "release/*.tar.gz"  # 压缩包
+  skip_cleanup: true
+  draft: true           # 创建草稿发布
+  prerelease: false
+  overwrite: true
+  on:
+    tags: true          # 只在标签推送时发布
+    all_branches: true
+
+# 通知配置
+notifications:
+  email: false
+  
+  # Slack 通知（可选）
+  # slack:
+  #   rooms:
+  #     - secure: "your-encrypted-slack-webhook"
+  #   on_success: change
+  #   on_failure: always
+
+# 分支配置
+branches:
+  only:
+    - main
+    - master
+    - develop
+    - /^v\d+\.\d+(\.\d+)?(-\S*)?$/  # 版本标签
+
+# 构建阶段配置
+stages:
+  - name: test
+    if: type != push OR branch != main
+  - name: build
+    if: branch = main OR tag IS present
+  - name: deploy
+    if: tag IS present
+
+# 作业配置
+jobs:
+  include:
+    # 快速测试阶段（仅 Linux）
+    - stage: test
+      os: linux
+      node_js: "20"
+      script:
+        - npm run electron:build
+        - echo "Quick test completed"
+      
+    # 完整构建阶段
+    - stage: build
+      name: "Linux Build"
+      os: linux
+      script: npm run build:linux
+      
+    - stage: build
+      name: "macOS Build"
+      os: osx
+      script: npm run build:mac
+      
+    - stage: build
+      name: "Windows Build"
+      os: windows
+      script: npm run build:win
+
+# 构建超时设置
+timeout: 1800  # 30分钟
+
+# 其他配置
+dist: focal    # Ubuntu 20.04

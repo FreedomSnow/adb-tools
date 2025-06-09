@@ -12,6 +12,7 @@ jobs:
   build:
     strategy:
       matrix:
+        # GitHub Actions支持免费的macOS构建（公共仓库）
         os: [ubuntu-latest, windows-latest, macos-latest]
         node-version: [18, 20]
 
@@ -36,22 +37,24 @@ jobs:
       run: npm run electron:build
 
     - name: Build for Linux
-      if: matrix.os == 'ubuntu-latest'
+      if: matrix.os == 'ubuntu-latest' && matrix.node-version == 20
       run: npm run build:linux
 
     - name: Build for macOS
-      if: matrix.os == 'macos-latest'
+      if: matrix.os == 'macos-latest' && matrix.node-version == 20
       run: npm run build:mac
 
     - name: Build for Windows
-      if: matrix.os == 'windows-latest'
+      if: matrix.os == 'windows-latest' && matrix.node-version == 20
       run: npm run build:win
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: build-${{ matrix.os }}-node${{ matrix.node-version }}
         path: release/
+      # 只上传 Node.js 20 的构建结果用于发布
+      if: matrix.node-version == 20
 
   release:
     needs: build
@@ -63,15 +66,23 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Download artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts/
+
+    - name: Prepare release files
+      run: |
+        mkdir -p release-files
+        find artifacts/ -name "*.exe" -exec cp {} release-files/ \;
+        find artifacts/ -name "*.dmg" -exec cp {} release-files/ \;
+        find artifacts/ -name "*.AppImage" -exec cp {} release-files/ \;
+        find artifacts/ -name "*.zip" -exec cp {} release-files/ \;
+        ls -la release-files/
 
     - name: Release to GitHub
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          build-ubuntu-latest-node20/**/*
-          build-windows-latest-node20/**/*
-          build-macos-latest-node20/**/*
+        files: release-files/*
         draft: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

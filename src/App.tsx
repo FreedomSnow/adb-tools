@@ -43,12 +43,6 @@ const menuItems: MenuItem[] = [
     component: DeviceManager
   },
   {
-    key: 'logcat',
-    icon: <FileTextOutlined />,
-    label: 'Logcat查看',
-    component: LogcatViewer
-  },
-  {
     key: 'apps',
     icon: <AppstoreOutlined />,
     label: '应用管理',
@@ -83,7 +77,13 @@ const menuItems: MenuItem[] = [
     icon: <SettingOutlined />,
     label: '快捷操作',
     component: QuickActions
-  }
+  },
+  {
+    key: 'logcat',
+    icon: <FileTextOutlined />,
+    label: 'Logcat查看',
+    component: LogcatViewer
+  },
 ]
 
 function App() {

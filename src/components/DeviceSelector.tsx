@@ -6,7 +6,8 @@ import {
   UsbOutlined, 
   WarningOutlined,
   CheckCircleOutlined,
-  CloseCircleOutlined
+  CloseCircleOutlined,
+  ApiOutlined
 } from '@ant-design/icons'
 import { useDevice } from '../contexts/DeviceContext'
 
@@ -26,8 +27,15 @@ const DeviceSelector: React.FC<DeviceSelectorProps> = ({
 }) => {
   const { selectedDevice, setSelectedDevice, devices } = useDevice()
 
-  const getConnectionIcon = (connection: 'usb' | 'wifi') => {
-    return connection === 'wifi' ? <WifiOutlined /> : <UsbOutlined />
+  const getConnectionIcon = (connection: 'usb' | 'wifi' | 'ethernet') => {
+    switch (connection) {
+      case 'wifi':
+        return <WifiOutlined />
+      case 'ethernet':
+        return <ApiOutlined />
+      default:
+        return <UsbOutlined />
+    }
   }
 
   const getStatusTag = (status: 'device' | 'offline' | 'unauthorized') => {

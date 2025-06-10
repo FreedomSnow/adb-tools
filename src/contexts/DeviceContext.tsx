@@ -4,7 +4,7 @@ export interface Device {
   id: string
   model: string
   status: 'device' | 'offline' | 'unauthorized'
-  connection: 'usb' | 'wifi'
+  connection: 'usb' | 'wifi' | 'ethernet'
   androidVersion?: string
   apiLevel?: string
   manufacturer?: string

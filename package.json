@@ -22,13 +22,17 @@
     "productName": "ADB Tools",
     "copyright": "Copyright © 2024",
     "publish": null,
+    "compression": "maximum",
+    "removePackageScripts": true,
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**/*",
       "resources/**/*",
-      "package.json"
+      "package.json",
+      "!dist/**/*.map",
+      "!dist/**/*.ts"
     ],
     "extraFiles": [
       {
@@ -38,6 +42,9 @@
           "**/*"
         ]
       }
+    ],
+    "asarUnpack": [
+      "resources/adb/**/*"
     ],
     "win": {
       "target": [
@@ -54,7 +61,6 @@
         {
           "target": "dmg",
           "arch": [
-            "x64",
             "arm64"
           ]
         }
@@ -75,11 +81,12 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": true
     }
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
+    "@types/node": "^20.19.0",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.3.0",

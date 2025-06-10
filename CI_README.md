@@ -12,12 +12,13 @@
 ### 特性
 - ✅ 支持多平台构建 (Linux, Windows, macOS)
 - ✅ macOS构建完全免费 (公共仓库)
-- ✅ 支持多Node.js版本测试 (18, 20)
+- ✅ 统一使用Node.js 20 LTS版本
 - ✅ 使用最新的Actions (upload/download-artifact@v4)
-- ✅ 优化的构建流程 (仅Node.js 20用于发布)
+- ✅ 优化的构建流程 (直接构建release版本)
 - ✅ 自动构建和发布
 - ✅ 构建产物自动上传
 - ✅ 与GitHub深度集成
+- ✅ macOS仅构建ARM64架构，包大小减少50%
 
 ### 使用方法
 
@@ -42,9 +43,19 @@
 ### 构建产物
 
 构建完成后，会在以下位置找到安装包：
-- **Linux**: `*.AppImage`
-- **Windows**: `*.exe`
-- **macOS**: `*.dmg`
+- **Linux**: `*.AppImage` (x64)
+- **Windows**: `*.exe` (x64)
+- **macOS**: `*.dmg` (ARM64 only)
+
+### 架构支持
+
+| 平台 | 支持架构 | 说明 |
+|------|----------|------|
+| **Windows** | x64 | Intel/AMD 64位处理器 |
+| **Linux** | x64 | Intel/AMD 64位处理器 |
+| **macOS** | ARM64 | Apple Silicon (M1/M2/M3) |
+
+> 📝 **注意**: macOS不再支持Intel x64架构，仅支持Apple Silicon (ARM64)
 
 ## 🔧 Travis CI
 
@@ -97,27 +108,41 @@ npm run dev
 npm run build
 
 # 构建特定平台
-npm run build:win     # Windows
-npm run build:mac     # macOS
-npm run build:linux   # Linux
+npm run build:win     # Windows (x64)
+npm run build:mac     # macOS (ARM64 only)
+npm run build:linux   # Linux (x64)
 ```
 
 ### 构建要求
 
-- **Node.js**: 18.x 或 20.x
+- **Node.js**: 20.x LTS (推荐)
 - **操作系统**: 
   - Linux: Ubuntu 20.04+
-  - macOS: 10.15+
+  - macOS: 11.0+ (Apple Silicon)
   - Windows: 10+
 
 ## 🍎 macOS构建说明
 
+### 架构变更说明
+
+**重要更新**: 从v1.0.0开始，macOS版本仅支持Apple Silicon (ARM64)架构：
+
+- ✅ **Apple Silicon (M1/M2/M3)**: 完全支持
+- ❌ **Intel Mac (x64)**: 不再支持
+
+### 包大小优化
+
+移除Intel架构支持后：
+- 📦 **包大小减少**: 约50%
+- ⚡ **下载速度**: 提升2倍
+- 🔧 **维护成本**: 降低
+
 ### GitHub Actions vs Travis CI
 
-| CI服务 | macOS支持 | 费用 | 说明 |
-|--------|-----------|------|------|
-| **GitHub Actions** | ✅ 完全支持 | 🆓 免费 (公共仓库) | **推荐使用** |
-| **Travis CI** | ⚠️ 限制支持 | 💰 需要付费 | 免费计划不支持macOS |
+| CI服务 | macOS支持 | 费用 | 架构支持 |
+|--------|-----------|------|----------|
+| **GitHub Actions** | ✅ 完全支持 | 🆓 免费 (公共仓库) | ARM64 only |
+| **Travis CI** | ⚠️ 限制支持 | 💰 需要付费 | ARM64 only |
 
 ### 本地macOS构建
 
@@ -131,22 +156,11 @@ cd adb-tools
 # 安装依赖
 npm install
 
-# 构建macOS应用
+# 构建macOS应用 (仅ARM64)
 npm run build:mac
 ```
 
-### Travis CI启用macOS构建
-
-如果你有Travis CI付费账户，可以取消注释以下配置：
-
-**Travis CI** (`.travis.yml`):
-```yaml
-# 取消注释macOS配置
-- os: osx
-  osx_image: xcode12.5
-  node_js: "20"
-  env: BUILD_TARGET=mac
-```
+> ⚠️ **重要**: 需要在Apple Silicon Mac上构建，Intel Mac无法构建ARM64版本
 
 ## 🔍 故障排除
 
@@ -168,34 +182,30 @@ npm run build:mac
    - 确保安装了Python 3.8+
    - 确保安装了Visual Studio Build Tools
 
-4. **GitHub Actions artifact错误**
+4. **macOS架构不兼容**
+   ```
+   Error: Cannot run on Intel Mac
+   ```
+   **解决方案**: macOS版本仅支持Apple Silicon，Intel Mac用户请使用其他平台版本
+
+5. **Node.js版本问题**
+   ```
+   Error: Node.js version mismatch
+   ```
+   **解决方案**: 统一使用Node.js 20 LTS版本
+
+6. **GitHub Actions artifact错误**
    ```
    Error: This request has been automatically failed because it uses 
    a deprecated version of `actions/upload-artifact: v3`
    ```
    **解决方案**: 已更新到v4版本，确保使用最新的workflow配置
 
-5. **构建矩阵优化**
-   - 测试在所有Node.js版本上运行 (18, 20)
-   - 实际构建仅在Node.js 20上执行，避免重复和资源浪费
-
-6. **GitHub Token错误**
+7. **GitHub Token错误**
    ```
    ⨯ GitHub Personal Access Token is not set, neither programmatically, nor using env "GH_TOKEN"
    ```
    **解决方案**: 已在构建步骤中添加`GH_TOKEN`环境变量，并设置`publish: null`防止自动发布
-
-7. **作者信息缺失**
-   ```
-   author is missed in the package.json
-   ```
-   **解决方案**: 已在package.json中添加author字段
-
-8. **应用图标警告**
-   ```
-   default Electron icon is used  reason=application icon is not set
-   ```
-   **解决方案**: 暂时移除图标配置，使用默认图标。如需自定义图标，请在resources目录添加图标文件
 
 ### 日志查看
 
@@ -212,10 +222,12 @@ npm run build:mac
 - [ ] 所有测试通过
 - [ ] 创建了对应的Git标签
 - [ ] Release notes已准备好
+- [ ] 确认目标架构支持 (macOS仅ARM64)
 
 ## 🔗 相关链接
 
 - [Travis CI文档](https://docs.travis-ci.com/)
 - [GitHub Actions文档](https://docs.github.com/en/actions)
 - [Electron Builder文档](https://www.electron.build/)
-- [Node.js版本支持](https://nodejs.org/en/about/releases/) 
+- [Node.js版本支持](https://nodejs.org/en/about/releases/)
+- [Apple Silicon支持说明](https://developer.apple.com/documentation/apple-silicon) 

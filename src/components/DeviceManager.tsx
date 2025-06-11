@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { 
   Card, 
   Button, 
@@ -29,6 +29,7 @@ import {
   CopyOutlined
 } from '@ant-design/icons'
 import { useDevice, Device } from '../contexts/DeviceContext'
+import { DeviceSorter } from '../utils/DeviceSorter'
 
 const { Title, Text } = Typography
 const { Search } = Input
@@ -48,16 +49,33 @@ const DeviceManager: React.FC = () => {
   const [hardwareInfoModalVisible, setHardwareInfoModalVisible] = useState(false)
   const [selectedDeviceInfo, setSelectedDeviceInfo] = useState<Record<string, string>>({})
   const [loadingHardwareInfo, setLoadingHardwareInfo] = useState(false)
+  
+  // 创建设备排序器实例
+  const deviceSorter = React.useMemo(() => new DeviceSorter(), [])
+  
+  // 保存上一次的设备列表，用于检测设备变化
+  const prevDevicesRef = useRef<Device[]>([])
 
-  useEffect(() => {
-    console.log('DeviceManager组件已挂载，开始初始化刷新设备列表...')
-    // 延迟一小段时间确保组件完全加载
-    const timer = setTimeout(() => {
-      refreshDevices()
-    }, 100)
+  // 检测设备变化（连接和断开）
+  const detectDeviceChanges = (currentDevices: Device[]) => {
+    const prevDevices = prevDevicesRef.current
     
-    return () => clearTimeout(timer)
-  }, [])
+    // 检测断开的设备
+    const disconnectedDevices = prevDevices.filter(
+      prev => !currentDevices.some(current => current.id === prev.id)
+    )
+    
+    if (disconnectedDevices.length > 0) {
+      // 如果断开的是当前选中的设备，清除选中状态
+      const disconnectedDevice = disconnectedDevices[0]
+      if (selectedDevice && selectedDevice.id === disconnectedDevice.id) {
+        setSelectedDevice(null)
+      }
+    }
+    
+    // 更新上一次的设备列表
+    prevDevicesRef.current = currentDevices
+  }
 
   const refreshDevices = async () => {
     console.log('开始刷新设备列表...')
@@ -84,6 +102,8 @@ const DeviceManager: React.FC = () => {
             console.log(`获取设备 ${device.id} 的详细信息...`)
             const details = await getDeviceDetails(device.id)
             devicesWithDetails.push({ ...device, ...details })
+            // 更新在线设备的最后连接时间
+            deviceSorter.updateLastConnectedTime(device.id)
           } catch (error) {
             console.warn(`获取设备 ${device.id} 详细信息失败:`, error)
             devicesWithDetails.push(device)
@@ -93,12 +113,18 @@ const DeviceManager: React.FC = () => {
         }
       }
       
-      console.log('设备详细信息获取完成:', devicesWithDetails)
-      setDevices(devicesWithDetails)
+      // 使用设备排序器对设备列表进行排序
+      const sortedDevices = deviceSorter.sortDevices(devicesWithDetails)
+      
+      // 检测设备变化（只在排序后的最终列表上进行检测）
+      detectDeviceChanges(sortedDevices)
+      
+      console.log('排序后的设备列表:', sortedDevices)
+      setDevices(sortedDevices)
       
       // 如果没有选中的设备，自动选择第一个在线设备
       if (!selectedDevice) {
-        const firstOnlineDevice = devicesWithDetails.find(device => device.status === 'device')
+        const firstOnlineDevice = sortedDevices.find(device => device.status === 'device')
         if (firstOnlineDevice) {
           console.log('自动选择设备:', firstOnlineDevice)
           setSelectedDevice(firstOnlineDevice)
@@ -688,7 +714,7 @@ const DeviceManager: React.FC = () => {
       key: 'action',
       render: (_: any, record: Device) => (
         <Space>
-          <Button 
+          {/* <Button 
             type="link" 
             size="small"
             onClick={() => {
@@ -696,7 +722,7 @@ const DeviceManager: React.FC = () => {
             }}
           >
             详情
-          </Button>
+          </Button> */}
           <Button 
             type="link" 
             size="small"
@@ -730,8 +756,8 @@ const DeviceManager: React.FC = () => {
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
+        <Title level={4} style={{ margin: '0 0 16px 0' }}>设备管理</Title>
         <Space size="middle">
-          <Title level={4} style={{ margin: 0 }}>设备管理</Title>
           <Button 
             type="primary" 
             icon={<ReloadOutlined />} 
@@ -796,7 +822,11 @@ const DeviceManager: React.FC = () => {
           dataSource={devices}
           rowKey="id"
           loading={loading}
-          pagination={false}
+          pagination={{
+            pageSize: 10,
+            showSizeChanger: false,
+            showTotal: (total) => `共 ${total} 台设备`
+          }}
           size="middle"
           rowClassName={(record) => 
             selectedDevice?.id === record.id ? 'selected-device-row' : ''

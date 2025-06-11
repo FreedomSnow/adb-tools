@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { 
   Card, 
   Button, 
@@ -11,7 +11,9 @@ import {
   Modal,
   message,
   Descriptions,
-  Divider
+  Divider,
+  Tooltip,
+  Spin
 } from 'antd'
 import { 
   ReloadOutlined, 
@@ -22,9 +24,12 @@ import {
   CloseCircleOutlined,
   InfoCircleOutlined,
   SettingOutlined,
-  ThunderboltOutlined
+  ThunderboltOutlined,
+  ApiOutlined,
+  CopyOutlined
 } from '@ant-design/icons'
 import { useDevice, Device } from '../contexts/DeviceContext'
+import { DeviceSorter } from '../utils/DeviceSorter'
 
 const { Title, Text } = Typography
 const { Search } = Input
@@ -34,20 +39,43 @@ const DeviceManager: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [detailDevice, setDetailDevice] = useState<Device | null>(null)
   const [wifiModalVisible, setWifiModalVisible] = useState(false)
+  const [ethernetModalVisible, setEthernetModalVisible] = useState(false)
   const [wifiAddress, setWifiAddress] = useState('')
+  const [ethernetAddress, setEthernetAddress] = useState('')
   const [restartingAdb, setRestartingAdb] = useState(false)
   const [diagnosing, setDiagnosing] = useState(false)
   const [enablingWifiDebug, setEnablingWifiDebug] = useState(false)
+  const [enablingEthernetDebug, setEnablingEthernetDebug] = useState(false)
+  const [hardwareInfoModalVisible, setHardwareInfoModalVisible] = useState(false)
+  const [selectedDeviceInfo, setSelectedDeviceInfo] = useState<Record<string, string>>({})
+  const [loadingHardwareInfo, setLoadingHardwareInfo] = useState(false)
+  
+  // 创建设备排序器实例
+  const deviceSorter = React.useMemo(() => new DeviceSorter(), [])
+  
+  // 保存上一次的设备列表，用于检测设备变化
+  const prevDevicesRef = useRef<Device[]>([])
 
-  useEffect(() => {
-    console.log('DeviceManager组件已挂载，开始初始化刷新设备列表...')
-    // 延迟一小段时间确保组件完全加载
-    const timer = setTimeout(() => {
-      refreshDevices()
-    }, 100)
+  // 检测设备变化（连接和断开）
+  const detectDeviceChanges = (currentDevices: Device[]) => {
+    const prevDevices = prevDevicesRef.current
     
-    return () => clearTimeout(timer)
-  }, [])
+    // 检测断开的设备
+    const disconnectedDevices = prevDevices.filter(
+      prev => !currentDevices.some(current => current.id === prev.id)
+    )
+    
+    if (disconnectedDevices.length > 0) {
+      // 如果断开的是当前选中的设备，清除选中状态
+      const disconnectedDevice = disconnectedDevices[0]
+      if (selectedDevice && selectedDevice.id === disconnectedDevice.id) {
+        setSelectedDevice(null)
+      }
+    }
+    
+    // 更新上一次的设备列表
+    prevDevicesRef.current = currentDevices
+  }
 
   const refreshDevices = async () => {
     console.log('开始刷新设备列表...')
@@ -74,6 +102,8 @@ const DeviceManager: React.FC = () => {
             console.log(`获取设备 ${device.id} 的详细信息...`)
             const details = await getDeviceDetails(device.id)
             devicesWithDetails.push({ ...device, ...details })
+            // 更新在线设备的最后连接时间
+            deviceSorter.updateLastConnectedTime(device.id)
           } catch (error) {
             console.warn(`获取设备 ${device.id} 详细信息失败:`, error)
             devicesWithDetails.push(device)
@@ -83,12 +113,18 @@ const DeviceManager: React.FC = () => {
         }
       }
       
-      console.log('设备详细信息获取完成:', devicesWithDetails)
-      setDevices(devicesWithDetails)
+      // 使用设备排序器对设备列表进行排序
+      const sortedDevices = deviceSorter.sortDevices(devicesWithDetails)
+      
+      // 检测设备变化（只在排序后的最终列表上进行检测）
+      detectDeviceChanges(sortedDevices)
+      
+      console.log('排序后的设备列表:', sortedDevices)
+      setDevices(sortedDevices)
       
       // 如果没有选中的设备，自动选择第一个在线设备
       if (!selectedDevice) {
-        const firstOnlineDevice = devicesWithDetails.find(device => device.status === 'device')
+        const firstOnlineDevice = sortedDevices.find(device => device.status === 'device')
         if (firstOnlineDevice) {
           console.log('自动选择设备:', firstOnlineDevice)
           setSelectedDevice(firstOnlineDevice)
@@ -259,6 +295,87 @@ const DeviceManager: React.FC = () => {
     }
   }
 
+  const connectEthernet = async () => {
+    if (!ethernetAddress) {
+      message.error('请输入有效的IP地址')
+      return
+    }
+    
+    try {
+      // 确保地址包含端口号，如果没有则添加默认端口5555
+      let fullAddress = ethernetAddress.trim()
+      if (!fullAddress.includes(':')) {
+        fullAddress = `${fullAddress}:5555`
+      }
+      
+      message.loading('正在连接设备...', 0)
+      
+      console.log(`尝试连接到: ${fullAddress}`)
+      
+      // 首先尝试连接到设备
+      const connectResult = await window.adbToolsAPI.execAdbCommand(`connect ${fullAddress}`)
+      
+      console.log('连接结果:', connectResult)
+      
+      if (!connectResult.success) {
+        message.destroy()
+        // 提供更详细的错误信息
+        let errorMsg = connectResult.error || '连接失败'
+        
+        if (errorMsg.includes('cannot connect')) {
+          errorMsg = `无法连接到 ${fullAddress}。请检查：\n1. 设备和电脑是否在同一网络\n2. 设备是否已开启网络调试\n3. IP地址是否正确`
+        } else if (errorMsg.includes('Connection refused')) {
+          errorMsg = `连接被拒绝。请确保设备已执行 'adb tcpip 5555' 命令开启网络调试`
+        }
+        
+        throw new Error(errorMsg)
+      }
+      
+      message.destroy()
+      
+      const resultData = connectResult.data?.toLowerCase() || ''
+      
+      if (resultData.includes('connected') || resultData.includes('already connected')) {
+        message.success(`以太网连接成功: ${fullAddress}`)
+        setEthernetModalVisible(false)
+        setEthernetAddress('')
+        // 重新获取设备列表
+        setTimeout(() => refreshDevices(), 1500)
+      } else if (resultData.includes('failed')) {
+        throw new Error(`连接失败: ${connectResult.data}`)
+      } else {
+        // 有时连接成功但消息不明确，尝试检查设备列表
+        message.loading('验证连接状态...', 0)
+        setTimeout(async () => {
+          try {
+            await refreshDevices()
+            const connectedDevice = devices.find(d => d.id.includes(fullAddress.split(':')[0]))
+            message.destroy()
+            
+            if (connectedDevice) {
+              message.success(`以太网连接成功: ${fullAddress}`)
+              setEthernetModalVisible(false)
+              setEthernetAddress('')
+            } else {
+              message.warning(`连接可能失败，请检查设备列表或重试`)
+            }
+          } catch (e) {
+            message.destroy()
+            message.error('连接状态验证失败')
+          }
+        }, 2000)
+      }
+      
+    } catch (error: any) {
+      message.destroy()
+      console.error('以太网连接失败:', error)
+      message.error({
+        content: `以太网连接失败: ${error.message}`,
+        duration: 6
+      })
+    }
+  }
+
   const selectDevice = (device: Device) => {
     setSelectedDevice(device)
     message.success(`已选择设备: ${device.model}`)
@@ -349,6 +466,69 @@ const DeviceManager: React.FC = () => {
       message.error(`启用WiFi调试失败: ${error.message}`)
     } finally {
       setEnablingWifiDebug(false)
+    }
+  }
+
+  const enableEthernetDebug = async () => {
+    setEnablingEthernetDebug(true)
+    
+    try {
+      message.loading('正在启用网络调试...', 0)
+      
+      // 首先检查是否有USB连接的设备
+      const deviceListResult = await window.adbToolsAPI.execAdbCommand('devices')
+      
+      if (!deviceListResult.success) {
+        throw new Error('无法获取设备列表')
+      }
+      
+      const deviceLines = deviceListResult.data?.split('\n').filter(line => 
+        line.trim() && !line.includes('List of devices') && line.includes('device')
+      ) || []
+      
+      const usbDevices = deviceLines.filter(line => !line.includes(':'))
+      
+      if (usbDevices.length === 0) {
+        message.destroy()
+        message.error('未检测到USB连接的设备，请先通过USB连接设备并启用USB调试')
+        return
+      }
+      
+      // 如果有多个USB设备，使用第一个
+      const deviceId = usbDevices[0].split('\t')[0]
+      
+      console.log(`对设备 ${deviceId} 启用网络调试...`)
+      
+      // 执行 adb tcpip 5555
+      const tcpipResult = await window.adbToolsAPI.execAdbCommand(`-s ${deviceId} tcpip 5555`)
+      
+      message.destroy()
+      
+      if (tcpipResult.success) {
+        message.success({
+          content: (
+            <div>
+              <div>✅ 网络调试已成功启用！</div>
+              <div style={{ marginTop: 8, fontSize: '12px', color: '#666' }}>
+                现在可以断开USB线，然后输入设备IP地址进行网络连接
+              </div>
+            </div>
+          ),
+          duration: 5
+        })
+        
+        // 刷新设备列表
+        setTimeout(() => refreshDevices(), 1000)
+      } else {
+        throw new Error(tcpipResult.error || '网络调试启用失败')
+      }
+      
+    } catch (error: any) {
+      message.destroy()
+      console.error('启用网络调试失败:', error)
+      message.error(`启用网络调试失败: ${error.message}`)
+    } finally {
+      setEnablingEthernetDebug(false)
     }
   }
 
@@ -449,58 +629,109 @@ const DeviceManager: React.FC = () => {
   }
 
   const getConnectionIcon = (connection: Device['connection']) => {
-    return connection === 'wifi' ? <WifiOutlined /> : <UsbOutlined />
+    switch (connection) {
+      case 'wifi':
+        return <WifiOutlined />
+      case 'ethernet':
+        return <ApiOutlined />
+      default:
+        return <UsbOutlined />
+    }
+  }
+
+  const getDeviceHardwareInfo = async (deviceId: string) => {
+    setLoadingHardwareInfo(true)
+    try {
+      const commands = {
+        'Android系统版本': 'shell getprop ro.build.version.release',
+        'SDK版本': 'shell getprop ro.build.version.sdk',
+        '构建号': 'shell getprop ro.build.id',
+        '品牌': 'shell getprop ro.product.brand',
+        '型号': 'shell getprop ro.product.model',
+        '设备名': 'shell getprop ro.product.device',
+        '构架/ABI': 'shell getprop ro.product.cpu.abi',
+        'CPU信息': 'shell cat /proc/cpuinfo | grep "Hardware" | cut -d: -f2',
+        '内存信息': 'shell cat /proc/meminfo | grep "MemTotal" | cut -d: -f2',
+        '屏幕分辨率': 'shell wm size',
+        '屏幕密度': 'shell wm density',
+        '电池状态': 'shell dumpsys battery | grep "level" | cut -d: -f2'
+      }
+
+      const info: Record<string, string> = {}
+      
+      for (const [key, command] of Object.entries(commands)) {
+        const result = await window.adbToolsAPI.execAdbCommand(`-s ${deviceId} ${command}`)
+        if (result.success) {
+          info[key] = result.data?.trim() || '-'
+        } else {
+          info[key] = '-'
+        }
+      }
+
+      setSelectedDeviceInfo(info)
+    } catch (error) {
+      console.error('获取设备硬件信息失败:', error)
+      message.error('获取设备硬件信息失败')
+    } finally {
+      setLoadingHardwareInfo(false)
+    }
+  }
+
+  const copyToClipboard = (key: string, value: string) => {
+    const text = `${key}：${value}`
+    navigator.clipboard.writeText(text).then(() => {
+      message.success('已复制到剪贴板')
+    }).catch(() => {
+      message.error('复制失败')
+    })
   }
 
   const columns = [
     {
-      title: '设备ID',
-      dataIndex: 'id',
-      key: 'id',
-      render: (id: string, record: Device) => (
-        <Space>
-          {getConnectionIcon(record.connection)}
-          <Text code>{id}</Text>
-          {selectedDevice?.id === record.id && (
-            <Tag color="blue">当前选中</Tag>
-          )}
-        </Space>
-      )
+      title: '设备序列号',
+      dataIndex: 'serialNumber',
+      key: 'serialNumber',
+      render: (serial: string) => <Text code>{serial}</Text>
     },
     {
-      title: '设备型号',
+      title: '设备名',
       dataIndex: 'model',
       key: 'model'
     },
     {
-      title: '制造商',
-      dataIndex: 'manufacturer',
-      key: 'manufacturer'
-    },
-    {
-      title: 'Android版本',
-      dataIndex: 'androidVersion',
-      key: 'androidVersion',
-      render: (version: string, record: Device) => 
-        version ? `Android ${version} (API ${record.apiLevel})` : '-'
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: Device['status']) => getStatusTag(status)
+      title: '连接方式',
+      dataIndex: 'connection',
+      key: 'connection',
+      render: (connection: Device['connection']) => (
+        <Space>
+          {getConnectionIcon(connection)}
+          {connection === 'wifi' ? 'WiFi' : connection === 'ethernet' ? '以太网' : 'USB'}
+        </Space>
+      )
     },
     {
       title: '操作',
       key: 'action',
       render: (_: any, record: Device) => (
         <Space>
+          {/* <Button 
+            type="link" 
+            size="small"
+            onClick={() => {
+              setDetailDevice(record)
+            }}
+          >
+            详情
+          </Button> */}
           <Button 
             type="link" 
             size="small"
-            onClick={() => setDetailDevice(record)}
+            onClick={async () => {
+              await getDeviceHardwareInfo(record.id)
+              setHardwareInfoModalVisible(true)
+            }}
           >
-            详情
+            软硬件信息
           </Button>
           {record.status === 'device' && (
             <Button 
@@ -525,8 +756,8 @@ const DeviceManager: React.FC = () => {
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
+        <Title level={4} style={{ margin: '0 0 16px 0' }}>设备管理</Title>
         <Space size="middle">
-          <Title level={4} style={{ margin: 0 }}>设备管理</Title>
           <Button 
             type="primary" 
             icon={<ReloadOutlined />} 
@@ -540,6 +771,12 @@ const DeviceManager: React.FC = () => {
             onClick={() => setWifiModalVisible(true)}
           >
             WiFi连接
+          </Button>
+          <Button 
+            icon={<ApiOutlined />}
+            onClick={() => setEthernetModalVisible(true)}
+          >
+            以太网连接
           </Button>
           <Button 
             icon={<SettingOutlined />}
@@ -585,7 +822,11 @@ const DeviceManager: React.FC = () => {
           dataSource={devices}
           rowKey="id"
           loading={loading}
-          pagination={false}
+          pagination={{
+            pageSize: 10,
+            showSizeChanger: false,
+            showTotal: (total) => `共 ${total} 台设备`
+          }}
           size="middle"
           rowClassName={(record) => 
             selectedDevice?.id === record.id ? 'selected-device-row' : ''
@@ -642,7 +883,7 @@ const DeviceManager: React.FC = () => {
         ]}
       >
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
-                      <Alert
+          <Alert
             message="WiFi调试连接步骤"
             description={
               <div>
@@ -665,6 +906,105 @@ const DeviceManager: React.FC = () => {
               value={wifiAddress}
               onChange={(e: any) => setWifiAddress(e.target.value)}
               onPressEnter={connectWifi}
+              style={{ marginTop: 8 }}
+              suffix={
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  :5555
+                </Text>
+              }
+            />
+            <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginTop: 4 }}>
+              如果不包含端口号，将自动添加 :5555
+            </Text>
+          </div>
+
+          <Alert
+            message="常见问题"
+            description={
+              <div>
+                <Text type="secondary">• 连接被拒绝：请确保已执行 adb tcpip 5555</Text><br/>
+                <Text type="secondary">• 无法连接：检查防火墙设置和网络连接</Text><br/>
+                <Text type="secondary">• IP地址错误：在设备设置中确认正确的IP地址</Text>
+              </div>
+            }
+            type="warning"
+            showIcon
+          />
+        </Space>
+      </Modal>
+
+      {/* 以太网连接对话框 */}
+      <Modal
+        title="以太网连接设备"
+        open={ethernetModalVisible}
+        onOk={connectEthernet}
+        onCancel={() => {
+          setEthernetModalVisible(false)
+          setEthernetAddress('')
+        }}
+        okText="连接"
+        cancelText="取消"
+        width={600}
+        footer={[
+          <Button 
+            key="enable-ethernet" 
+            icon={<ThunderboltOutlined />}
+            loading={enablingEthernetDebug}
+            onClick={enableEthernetDebug}
+            title="对USB连接的设备执行 adb tcpip 5555 启用网络调试"
+          >
+            启用网络调试
+          </Button>,
+          <Button 
+            key="diagnose" 
+            loading={diagnosing}
+            onClick={diagnoseWifiConnection}
+          >
+            网络诊断
+          </Button>,
+          <Button 
+            key="cancel" 
+            onClick={() => {
+              setEthernetModalVisible(false)
+              setEthernetAddress('')
+            }}
+          >
+            取消
+          </Button>,
+          <Button 
+            key="connect" 
+            type="primary" 
+            onClick={connectEthernet}
+            disabled={!ethernetAddress}
+          >
+            连接
+          </Button>
+        ]}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Alert
+            message="以太网调试连接步骤"
+            description={
+              <div>
+                <Text>1. 确保设备和电脑连接在同一网络</Text><br/>
+                <Text>2. 在设备上打开开发者选项，启用"USB调试"</Text><br/>
+                <Text>3. 通过USB连接设备，点击下方"启用网络调试"按钮</Text><br/>
+                <Text>   <Text type="secondary">(等同于执行命令：adb tcpip 5555)</Text></Text><br/>
+                <Text>4. 在设备的设置 → 关于手机 → 状态信息中查看IP地址</Text><br/>
+                <Text>5. 输入IP地址进行网络连接</Text>
+              </div>
+            }
+            type="info"
+            showIcon
+          />
+          
+          <div>
+            <Text strong>设备IP地址:</Text>
+            <Input
+              placeholder="例如: 192.168.1.100 或 172.17.4.111"
+              value={ethernetAddress}
+              onChange={(e: any) => setEthernetAddress(e.target.value)}
+              onPressEnter={connectEthernet}
               style={{ marginTop: 8 }}
               suffix={
                 <Text type="secondary" style={{ fontSize: '12px' }}>
@@ -725,7 +1065,7 @@ const DeviceManager: React.FC = () => {
             <Descriptions.Item label="连接方式">
               <Space>
                 {getConnectionIcon(detailDevice.connection)}
-                {detailDevice.connection === 'wifi' ? 'WiFi' : 'USB'}
+                {detailDevice.connection === 'wifi' ? 'WiFi' : detailDevice.connection === 'ethernet' ? '以太网' : 'USB'}
               </Space>
             </Descriptions.Item>
             <Descriptions.Item label="状态">
@@ -733,6 +1073,40 @@ const DeviceManager: React.FC = () => {
             </Descriptions.Item>
           </Descriptions>
         )}
+      </Modal>
+
+      {/* 软硬件信息对话框 */}
+      <Modal
+        title="设备软硬件信息"
+        open={hardwareInfoModalVisible}
+        onCancel={() => setHardwareInfoModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setHardwareInfoModalVisible(false)}>
+            关闭
+          </Button>
+        ]}
+        width={600}
+      >
+        <Spin spinning={loadingHardwareInfo}>
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            {Object.entries(selectedDeviceInfo).map(([key, value]) => (
+              <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text strong>{key}:</Text>
+                <Space>
+                  <Text>{value}</Text>
+                  <Tooltip title="复制">
+                    <Button 
+                      type="text" 
+                      icon={<CopyOutlined />} 
+                      size="small"
+                      onClick={() => copyToClipboard(key, value)}
+                    />
+                  </Tooltip>
+                </Space>
+              </div>
+            ))}
+          </Space>
+        </Spin>
       </Modal>
 
       <style>{`

@@ -13,7 +13,9 @@ import {
   Descriptions,
   Divider,
   Tooltip,
-  Spin
+  Spin,
+  Row,
+  Col
 } from 'antd'
 import { 
   ReloadOutlined, 
@@ -156,7 +158,9 @@ const DeviceManager: React.FC = () => {
       // 解析设备信息
       let model = '未知设备'
       let manufacturer = '未知'
+      let device = '未知'
       const connection = deviceId.includes(':') ? 'wifi' : 'usb'
+      console.log('parseDeviceList parts:', parts)
 
       // 从详细信息中提取设备信息
       const detailInfo = parts.slice(2).join(' ')
@@ -171,8 +175,10 @@ const DeviceManager: React.FC = () => {
         const deviceMatch = detailInfo.match(/device:([^\s]+)/)
         if (deviceMatch) {
           manufacturer = deviceMatch[1]
+          device = deviceMatch[1].replace(/_/g, ' ')
         }
       }
+    
 
       devices.push({
         id: deviceId,
@@ -180,7 +186,8 @@ const DeviceManager: React.FC = () => {
         status,
         connection,
         manufacturer,
-        serialNumber: deviceId
+        serialNumber: deviceId,
+        device
       })
     }
 
@@ -643,12 +650,12 @@ const DeviceManager: React.FC = () => {
     setLoadingHardwareInfo(true)
     try {
       const commands = {
+        '设备名': 'shell getprop ro.product.device',
         'Android系统版本': 'shell getprop ro.build.version.release',
         'SDK版本': 'shell getprop ro.build.version.sdk',
         '构建号': 'shell getprop ro.build.id',
         '品牌': 'shell getprop ro.product.brand',
         '型号': 'shell getprop ro.product.model',
-        '设备名': 'shell getprop ro.product.device',
         '构架/ABI': 'shell getprop ro.product.cpu.abi',
         'CPU信息': 'shell cat /proc/cpuinfo | grep "Hardware" | cut -d: -f2',
         '内存信息': 'shell cat /proc/meminfo | grep "MemTotal" | cut -d: -f2',
@@ -695,8 +702,8 @@ const DeviceManager: React.FC = () => {
     },
     {
       title: '设备名',
-      dataIndex: 'model',
-      key: 'model'
+      dataIndex: 'device',
+      key: 'device'
     },
     {
       title: '连接方式',
@@ -756,37 +763,49 @@ const DeviceManager: React.FC = () => {
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
-        <Title level={4} style={{ margin: '0 0 16px 0' }}>设备管理</Title>
-        <Space size="middle">
-          <Button 
-            type="primary" 
-            icon={<ReloadOutlined />} 
-            loading={loading}
-            onClick={refreshDevices}
-          >
-            刷新设备
-          </Button>
-          <Button 
-            icon={<WifiOutlined />}
-            onClick={() => setWifiModalVisible(true)}
-          >
+        <Row gutter={16} align="middle">
+          <Col>
+            <Title level={4} style={{ margin: 0 }}>设备管理</Title>
+          </Col>
+          <Col>
+            <Button 
+              type="primary" 
+              icon={<ReloadOutlined />} 
+              loading={loading}
+              onClick={refreshDevices}
+            >
+              刷新设备
+            </Button>
+          </Col>
+        </Row>
+        <Row gutter={16} align="middle" style={{ marginTop: 16 }}>
+          <Col>
+            <Button 
+              icon={<WifiOutlined />}
+              onClick={() => setWifiModalVisible(true)}
+            >
             WiFi连接
-          </Button>
-          <Button 
-            icon={<ApiOutlined />}
-            onClick={() => setEthernetModalVisible(true)}
-          >
-            以太网连接
-          </Button>
-          <Button 
-            icon={<SettingOutlined />}
-            loading={restartingAdb}
-            onClick={restartAdbServer}
-            title="当设备列表加载失败时，可以尝试重启ADB服务器"
-          >
-            重启ADB服务器
-          </Button>
-        </Space>
+            </Button>
+          </Col>
+          <Col>
+            <Button 
+              icon={<ApiOutlined />}
+              onClick={() => setEthernetModalVisible(true)}
+            >
+              以太网连接
+            </Button>
+          </Col>
+          <Col>
+            <Button 
+              icon={<SettingOutlined />}
+              loading={restartingAdb}
+              onClick={restartAdbServer}
+              title="当设备列表加载失败时，可以尝试重启ADB服务器"
+            >
+              重启ADB服务器
+            </Button>
+          </Col>
+        </Row>
       </div>
 
       {/* 当前选中设备信息 */}
@@ -795,7 +814,7 @@ const DeviceManager: React.FC = () => {
           <Space>
             <Text strong>当前选中设备:</Text>
             {getConnectionIcon(selectedDevice.connection)}
-            <Text>{selectedDevice.model}</Text>
+            <Text>{selectedDevice.device}</Text>
             <Text code>{selectedDevice.id}</Text>
             {getStatusTag(selectedDevice.status)}
             {selectedDevice.androidVersion && (

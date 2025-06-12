@@ -708,7 +708,7 @@ const AppManager: React.FC = () => {
             </Col>
             <Col span={3}>
               <Space direction="vertical" size="small">
-                <Text strong>当前设备</Text>
+                <Text strong>当前选中设备</Text>
                 <Text type="secondary">
                   {selectedDevice ? selectedDevice.model : '未选择'}
                 </Text>

@@ -9,6 +9,7 @@ export interface Device {
   apiLevel?: string
   manufacturer?: string
   serialNumber: string
+  device?: string // 新增device字段
 }
 
 interface DeviceContextType {

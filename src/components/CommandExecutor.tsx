@@ -10,7 +10,8 @@ import {
   Col,
   Select,
   Tag,
-  Alert
+  Alert,
+  AutoComplete
 } from 'antd'
 import { 
   PlayCircleOutlined,
@@ -231,50 +232,27 @@ const CommandExecutor: React.FC = () => {
     }
   }
 
+  // 获取历史命令选项
+  const getHistoryOptions = () => {
+    return commandHistory.map((hist, index) => ({
+      value: hist.command,
+      label: (
+        <Space>
+          <Tag color={hist.status === 'success' ? 'green' : 'red'}>
+            {hist.status === 'success' ? '✓' : '✗'}
+          </Tag>
+          <span>{hist.command}</span>
+        </Space>
+      )
+    }))
+  }
+
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
         <Row gutter={16} align="middle">
           <Col>
             <Title level={4} style={{ margin: 0 }}>命令执行器</Title>
-          </Col>
-          <Col>
-            <Button 
-              type="primary"
-              icon={<PlayCircleOutlined />}
-              onClick={executeCommand}
-              loading={executing}
-              disabled={!selectedDevice || selectedDevice.status !== 'device' || !command.trim()}
-            >
-              执行命令
-            </Button>
-          </Col>
-          <Col>
-            <Button 
-              icon={<ClearOutlined />}
-              onClick={clearOutput}
-              disabled={!output}
-            >
-              清空输出
-            </Button>
-          </Col>
-          <Col>
-            <Button 
-              icon={<CopyOutlined />}
-              onClick={copyOutput}
-              disabled={!output}
-            >
-              复制输出
-            </Button>
-          </Col>
-          <Col>
-            <Button 
-              icon={<SaveOutlined />}
-              onClick={saveOutput}
-              disabled={!output}
-            >
-              保存输出
-            </Button>
           </Col>
         </Row>
       </div>
@@ -284,47 +262,104 @@ const CommandExecutor: React.FC = () => {
         <DeviceSelector />
       </Card>
 
-      <Row gutter={16}>
+      <Row gutter={16} justify="space-between">
         {/* 命令输入区域 */}
         <Col span={16}>
-          <Card title="命令输入" style={{ marginBottom: 16 }}>
+          <Card 
+            title={
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>命令输入</span>
+                <Space size={40}>
+                  <Button
+                    type="default"
+                    icon={<ClearOutlined />}
+                    onClick={() => setCommand('')}
+                    disabled={!command}
+                    style={{ 
+                      padding: '4px 8px',
+                      backgroundColor: '#f5f5f5',
+                      border: '1px solid #d9d9d9'
+                    }}
+                  />
+                  <Button
+                    type="primary"
+                    icon={<PlayCircleOutlined />}
+                    onClick={executeCommand}
+                    loading={executing}
+                    disabled={!selectedDevice || selectedDevice.status !== 'device' || !command.trim()}
+                    style={{ 
+                      padding: '4px 8px'
+                    }}
+                  />
+                </Space>
+              </div>
+            } 
+            style={{ marginBottom: 16 }}
+          >
             <Space direction="vertical" style={{ width: '100%' }}>
               <Text type="secondary">
-                <CodeOutlined /> 输入ADB命令 (按 Ctrl+Enter 执行，会自动使用选定设备)
+                <CodeOutlined /> 输入ADB命令 (自动使用选定设备)
               </Text>
-              <Input
-                placeholder="例如: adb shell getprop ro.product.model"
+              <AutoComplete
                 value={command}
-                onChange={(e) => setCommand(e.target.value)}
-                onKeyPress={handleKeyPress}
+                onChange={setCommand}
+                options={getHistoryOptions()}
+                style={{ width: '100%' }}
+                onSelect={(value) => setCommand(value)}
                 disabled={!selectedDevice || selectedDevice.status !== 'device'}
                 size="large"
-              />
-              {selectedDevice && (
-                <Text type="secondary">
-                  目标设备: {selectedDevice.model} ({selectedDevice.id}) - 命令将自动添加设备参数
-                </Text>
-              )}
+                dropdownMatchSelectWidth={false}
+                open={command ? undefined : false}
+              >
+                <Input
+                  placeholder="例如: adb shell getprop ro.product.model"
+                  onKeyPress={handleKeyPress}
+                />
+              </AutoComplete>
             </Space>
           </Card>
 
           {/* 输出区域 */}
           <Card 
             title={
-              <Space>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span>执行输出</span>
-                {output && (
-                  <Button 
-                    type="text" 
-                    size="small"
+                <Space size={40}>
+                  <Button
+                    type="default"
+                    icon={<ClearOutlined />}
+                    onClick={clearOutput}
+                    disabled={!output}
+                    style={{ 
+                      padding: '4px 8px',
+                      backgroundColor: '#f5f5f5',
+                      border: '1px solid #d9d9d9'
+                    }}
+                  />
+                  <Button
+                    type="default"
+                    icon={<SaveOutlined />}
+                    onClick={saveOutput}
+                    disabled={!output}
+                    style={{ 
+                      padding: '4px 8px',
+                      backgroundColor: '#f5f5f5',
+                      border: '1px solid #d9d9d9'
+                    }}
+                  />
+                  <Button
+                    type="default"
                     icon={<CopyOutlined />}
                     onClick={copyOutput}
-                    style={{ color: '#1890ff' }}
-                  >
-                    复制
-                  </Button>
-                )}
-              </Space>
+                    disabled={!output}
+                    style={{ 
+                      padding: '4px 8px',
+                      backgroundColor: '#f5f5f5',
+                      border: '1px solid #d9d9d9'
+                    }}
+                  />
+                </Space>
+              </div>
             }
           >
             <TextArea

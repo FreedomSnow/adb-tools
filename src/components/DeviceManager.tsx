@@ -812,7 +812,7 @@ const DeviceManager: React.FC = () => {
       {selectedDevice && (
         <Card size="small" style={{ marginBottom: 16, background: '#f6f8fa' }}>
           <Space>
-            <Text strong>当前选中设备:</Text>
+            <Text strong>当前设备:</Text>
             {getConnectionIcon(selectedDevice.connection)}
             <Text>{selectedDevice.device}</Text>
             <Text code>{selectedDevice.id}</Text>

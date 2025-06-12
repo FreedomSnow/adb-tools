@@ -19,7 +19,9 @@ import {
   SaveOutlined,
   HistoryOutlined,
   CodeOutlined,
-  CopyOutlined
+  CopyOutlined,
+  UpOutlined,
+  DownOutlined
 } from '@ant-design/icons'
 import { useDevice } from '../contexts/DeviceContext'
 import DeviceSelector from './DeviceSelector'
@@ -42,6 +44,8 @@ const CommandExecutor: React.FC = () => {
   const [executing, setExecuting] = useState(false)
   const [commandHistory, setCommandHistory] = useState<CommandHistory[]>([])
   const [selectedHistoryCommand, setSelectedHistoryCommand] = useState<string>('')
+  const [showHistory, setShowHistory] = useState(false)
+  const inputRef = useRef<HTMLDivElement>(null)
   
   const outputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -56,7 +60,6 @@ const CommandExecutor: React.FC = () => {
     { label: '查看电池信息', value: 'adb shell dumpsys battery' },
     { label: '查看内存信息', value: 'adb shell cat /proc/meminfo' },
     { label: '查看CPU信息', value: 'adb shell cat /proc/cpuinfo' },
-    { label: '截取屏幕', value: 'adb shell screencap /sdcard/screenshot.png' },
     { label: '重启设备', value: 'adb reboot' },
     { label: '进入恢复模式', value: 'adb reboot recovery' },
     { label: '进入下载模式', value: 'adb reboot download' }
@@ -128,7 +131,10 @@ const CommandExecutor: React.FC = () => {
         output: commandOutput,
         status
       }
-      setCommandHistory(prev => [historyEntry, ...prev.slice(0, 49)]) // 保留最近50条
+      setCommandHistory(prev => {
+        const filteredHistory = prev.filter(h => h.command !== command)
+        return [historyEntry, ...filteredHistory].slice(0, 50)
+      })
 
       setExecuting(false)
       
@@ -149,7 +155,10 @@ const CommandExecutor: React.FC = () => {
         output: errorOutput,
         status: 'error'
       }
-      setCommandHistory(prev => [historyEntry, ...prev.slice(0, 49)])
+      setCommandHistory(prev => {
+        const filteredHistory = prev.filter(h => h.command !== command)
+        return [historyEntry, ...filteredHistory].slice(0, 50)
+      })
       
       setExecuting(false)
     }
@@ -232,19 +241,36 @@ const CommandExecutor: React.FC = () => {
     }
   }
 
-  // 获取历史命令选项
-  const getHistoryOptions = () => {
-    return commandHistory.map((hist, index) => ({
-      value: hist.command,
-      label: (
-        <Space>
-          <Tag color={hist.status === 'success' ? 'green' : 'red'}>
-            {hist.status === 'success' ? '✓' : '✗'}
-          </Tag>
-          <span>{hist.command}</span>
-        </Space>
-      )
-    }))
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault()
+      executeCommand()
+    }
+  }
+
+  // 添加点击页面其他区域时隐藏历史记录的功能
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (inputRef.current && !inputRef.current.contains(event.target as Node)) {
+        setShowHistory(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [])
+
+  const handleHistorySelect = (hist: CommandHistory) => {
+    console.log('历史记录内容:', {
+      command: hist.command,
+      timestamp: hist.timestamp,
+      output: hist.output,
+      status: hist.status
+    })
+    setCommand(hist.command)
+    setShowHistory(false)
   }
 
   return (
@@ -300,22 +326,74 @@ const CommandExecutor: React.FC = () => {
               <Text type="secondary">
                 <CodeOutlined /> 输入ADB命令 (自动使用选定设备)
               </Text>
-              <AutoComplete
-                value={command}
-                onChange={setCommand}
-                options={getHistoryOptions()}
-                style={{ width: '100%' }}
-                onSelect={(value) => setCommand(value)}
-                disabled={!selectedDevice || selectedDevice.status !== 'device'}
-                size="large"
-                dropdownMatchSelectWidth={false}
-                open={command ? undefined : false}
-              >
+              <div ref={inputRef} style={{ position: 'relative' }}>
                 <Input
+                  value={command}
+                  onChange={(e) => setCommand(e.target.value)}
                   placeholder="例如: adb shell getprop ro.product.model"
                   onKeyPress={handleKeyPress}
+                  onKeyDown={handleKeyDown}
+                  size="large"
+                  disabled={!selectedDevice || selectedDevice.status !== 'device'}
+                  onClick={() => setShowHistory(false)}
+                  suffix={
+                    <Button
+                      type="text"
+                      icon={showHistory ? <DownOutlined /> : <UpOutlined />}
+                      style={{ 
+                        padding: '0 4px',
+                        marginRight: -8,
+                        color: 'rgba(0, 0, 0, 0.45)'
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setShowHistory(!showHistory)
+                      }}
+                    />
+                  }
                 />
-              </AutoComplete>
+                {showHistory && commandHistory.length > 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    backgroundColor: 'white',
+                    border: '1px solid #d9d9d9',
+                    borderRadius: '2px',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                    zIndex: 1000,
+                    maxHeight: '300px',
+                    overflow: 'auto'
+                  }}>
+                    {commandHistory.map((hist, index) => (
+                      <div
+                        key={index}
+                        onClick={() => handleHistorySelect(hist)}
+                        style={{
+                          padding: '8px 12px',
+                          cursor: 'pointer',
+                          transition: 'background-color 0.3s',
+                          borderBottom: index < commandHistory.length - 1 ? '1px solid #f0f0f0' : 'none'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f5f5f5'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = 'transparent'
+                        }}
+                      >
+                        <Space>
+                          <Tag color={hist.status === 'success' ? 'green' : 'red'}>
+                            {hist.status === 'success' ? '✓' : '✗'}
+                          </Tag>
+                          <span>{hist.command}</span>
+                        </Space>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </Space>
           </Card>
 
@@ -425,70 +503,6 @@ const CommandExecutor: React.FC = () => {
                   {cmd.label}
                 </Button>
               ))}
-            </Space>
-          </Card>
-
-          {/* 历史命令 */}
-          <Card title="历史命令" size="small">
-            <Space direction="vertical" style={{ width: '100%' }}>
-              {commandHistory.length === 0 ? (
-                <Text type="secondary">暂无历史命令</Text>
-              ) : (
-                <>
-                  <Select
-                    placeholder="选择历史命令"
-                    style={{ width: '100%' }}
-                    value={selectedHistoryCommand}
-                    onChange={setSelectedHistoryCommand}
-                    size="small"
-                  >
-                    {commandHistory.map((hist, index) => (
-                      <Option key={index} value={hist.command}>
-                        <Space>
-                          <Tag color={hist.status === 'success' ? 'green' : 'red'}>
-                            {hist.status === 'success' ? '✓' : '✗'}
-                          </Tag>
-                          <Text 
-                            style={{ 
-                              maxWidth: '200px',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap'
-                            }}
-                          >
-                            {hist.command}
-                          </Text>
-                        </Space>
-                      </Option>
-                    ))}
-                  </Select>
-                  {selectedHistoryCommand && (
-                    <Space direction="vertical" style={{ width: '100%' }}>
-                      <Button
-                        type="primary"
-                        size="small"
-                        block
-                        onClick={() => loadHistoryCommand(selectedHistoryCommand)}
-                      >
-                        使用此命令
-                      </Button>
-                      <Button
-                        size="small"
-                        block
-                        icon={<CopyOutlined />}
-                        onClick={() => {
-                          const historyEntry = commandHistory.find(h => h.command === selectedHistoryCommand)
-                          if (historyEntry) {
-                            copyHistoryOutput(historyEntry)
-                          }
-                        }}
-                      >
-                        复制此命令输出
-                      </Button>
-                    </Space>
-                  )}
-                </>
-              )}
             </Space>
           </Card>
         </Col>

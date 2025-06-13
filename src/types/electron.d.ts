@@ -7,6 +7,25 @@ interface AdbToolsAPI {
   // 获取应用版本
   getAppVersion: () => Promise<string>
   
+  // 获取用户主目录
+  getUserHomeDir: () => Promise<string>
+  
+  // 拼接路径
+  joinPath: (...paths: string[]) => Promise<string>
+  
+  // 显示文件保存对话框
+  showSaveDialog: (options: {
+    title: string
+    defaultPath: string
+    filters: Array<{
+      name: string
+      extensions: string[]
+    }>
+  }) => Promise<{
+    canceled: boolean
+    filePath?: string
+  }>
+  
   // 打开新窗口
   openWin: (arg: string) => Promise<void>
   

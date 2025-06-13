@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, Menu } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, Menu, dialog } from 'electron'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -582,4 +582,26 @@ ipcMain.handle('install-apk', async (_, fileData: Buffer | Uint8Array, fileName:
       error: error.message || '安装失败'
     }
   }
+})
+
+// 获取用户主目录
+ipcMain.handle('get-user-home-dir', () => {
+  return app.getPath('home')
+})
+
+// 拼接路径
+ipcMain.handle('join-path', (_, ...paths: string[]) => {
+  return path.join(...paths)
+})
+
+// 显示文件保存对话框
+ipcMain.handle('show-save-dialog', (_, options: {
+  title: string
+  defaultPath: string
+  filters: Array<{
+    name: string
+    extensions: string[]
+  }>
+}) => {
+  return dialog.showSaveDialog(options)
 }) 

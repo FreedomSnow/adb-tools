@@ -1,15 +1,22 @@
 import React, { useState } from 'react'
 import { Typography, Card, Button, Row, Col, message } from 'antd'
-import { CameraOutlined, VideoCameraOutlined, FolderOpenOutlined } from '@ant-design/icons'
+import { CameraOutlined, VideoCameraOutlined, VideoCameraFilled, FolderOpenOutlined, LoadingOutlined } from '@ant-design/icons'
 import { useDevice } from '../contexts/DeviceContext'
 import DeviceSelector from './DeviceSelector'
-import { captureScreen } from '../utils/ScreenShot'
+import { captureScreen } from './ScreenShot'
+import { useScreenRecorder, generateScreenRecordFileName } from './ScreenRecorder'
 
 const { Title } = Typography
 
 const ScreenCapture: React.FC = () => {
   const { selectedDevice } = useDevice()
   const [lastScreenshotPath, setLastScreenshotPath] = useState<string>('')
+  const [isRecording, setIsRecording] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isScreenshotSaving, setIsScreenshotSaving] = useState(false)
+  const [tempFileName, setTempFileName] = useState<string>('')
+  const [lastRecordPath, setLastRecordPath] = useState<string>('')
+  const { startRecording, stopRecording } = useScreenRecorder()
 
   const handleScreenshot = async () => {
     if (!selectedDevice) {
@@ -17,6 +24,7 @@ const ScreenCapture: React.FC = () => {
       return
     }
 
+    setIsScreenshotSaving(true)
     try {
       const savedPath = await captureScreen(selectedDevice)
       setLastScreenshotPath(savedPath)
@@ -24,12 +32,9 @@ const ScreenCapture: React.FC = () => {
     } catch (error) {
       console.error('截屏失败:', error)
       message.error(error instanceof Error ? error.message : '截屏失败')
+    } finally {
+      setIsScreenshotSaving(false)
     }
-  }
-
-  const handleScreenRecord = () => {
-    // TODO: 实现录屏功能
-    console.log('录屏功能待实现')
   }
 
   const handleOpenScreenshotFolder = async () => {
@@ -44,14 +49,50 @@ const ScreenCapture: React.FC = () => {
     }
   }
 
-  const buttonStyle = {
-    width: '100px',
-    height: '50px',
-    display: 'flex',
-    flexDirection: 'row' as const,
-    justifyContent: 'left',
-    alignItems: 'left',
-    gap: '12px'
+  const handleOpenRecordFolder = async () => {
+    if (!lastRecordPath) return
+    try {
+      const dirPath = lastRecordPath.substring(0, lastRecordPath.lastIndexOf('/'))
+      await window.adbToolsAPI.openFolder(dirPath)
+    } catch (error) {
+      console.error('打开文件夹失败:', error)
+      message.error('打开文件夹失败')
+    }
+  }
+
+  const handleScreenRecord = async () => {
+    if (!isRecording) {
+      const fileName = generateScreenRecordFileName()
+      setTempFileName(fileName)
+      setIsRecording(true)
+      
+      // 异步执行录屏，不阻塞 UI
+      startRecording(fileName).then(success => {
+        if (!success) {
+          setIsRecording(false)
+          message.error('开始录屏失败')
+        }
+      }).catch(error => {
+        console.error('录屏操作失败:', error)
+        message.error('录屏操作失败')
+        setIsRecording(false)
+      })
+    } else {
+      setIsRecording(false)
+      setIsSaving(true)
+      
+      // 异步执行停止录屏，不阻塞 UI
+      stopRecording(tempFileName).then(savedPath => {
+        setIsSaving(false)
+        if (savedPath && savedPath.length > 0) {
+          setLastRecordPath(savedPath)
+        }
+      }).catch(error => {
+        console.error('停止录屏失败:', error)
+        message.error('停止录屏失败')
+        setIsSaving(false)
+      })
+    }
   }
 
   return (
@@ -64,53 +105,77 @@ const ScreenCapture: React.FC = () => {
       </Card>
 
       {/* 功能按钮 */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <Button 
-            type="primary" 
-            icon={<CameraOutlined style={{ fontSize: '26px' }} />} 
-            size="large"
-            onClick={handleScreenshot}
-            disabled={!selectedDevice || selectedDevice.status !== 'device'}
-            style={{ 
-              ...buttonStyle,
-              backgroundColor: '#1890ff',
-              borderColor: '#1890ff'
-            }}
-          >
-            截屏
-          </Button>
-          {lastScreenshotPath && (
-            <Button
-              type="link"
-              onClick={handleOpenScreenshotFolder}
+      <div style={{ marginBottom: 16 }}>
+        <Row gutter={16} align="middle" style={{ marginTop: 30 }}>
+          <Col>
+            <Button 
+              type="primary" 
+              icon={isScreenshotSaving ? <LoadingOutlined /> : <CameraOutlined />} 
+              onClick={handleScreenshot}
+              disabled={!selectedDevice || selectedDevice.status !== 'device' || isScreenshotSaving}
               style={{ 
-                padding: '0 12px',
-                height: '50px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
+                backgroundColor: isScreenshotSaving ? '#1890ff' : '#1890ff',
+                borderColor: isScreenshotSaving ? '#1890ff' : '#1890ff'
               }}
             >
-              已保存： {lastScreenshotPath}
-              <FolderOpenOutlined />
+              {isScreenshotSaving ? '保存中...' : '截屏'}
             </Button>
+          </Col>
+          {lastScreenshotPath && (
+            <Col>
+              <Button
+                type="link"
+                onClick={handleOpenScreenshotFolder}
+                style={{ 
+                  padding: '0 12px',
+                  height: '50px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                已保存： {lastScreenshotPath}
+                <FolderOpenOutlined />
+              </Button>
+            </Col>
           )}
-        </div>
-        <Button 
-          type="primary" 
-          icon={<VideoCameraOutlined style={{ fontSize: '26px' }} />} 
-          size="large"
-          onClick={handleScreenRecord}
-          disabled={!selectedDevice || selectedDevice.status !== 'device'}
-          style={{ 
-            ...buttonStyle,
-            backgroundColor: '#52c41a',
-            borderColor: '#52c41a'
-          }}
-        >
-          录屏
-        </Button>
+        </Row>
+        <Row gutter={16} align="middle" style={{ marginTop: 26 }}>
+          <Col>
+            <Button 
+              type="primary" 
+              icon={isRecording ? <VideoCameraFilled /> : isSaving ? <LoadingOutlined /> : <VideoCameraOutlined />}  
+              onClick={handleScreenRecord}
+              disabled={!selectedDevice || selectedDevice.status !== 'device' || isSaving}
+              style={{ 
+                backgroundColor: isRecording ? '#ff4d4f' : isSaving ? '#1890ff' : '#52c41a',
+                borderColor: isRecording ? '#ff4d4f' : isSaving ? '#1890ff' : '#52c41a',
+                paddingLeft: '24px',
+                paddingRight: '24px'
+              }}
+            >
+              {isRecording ? '录屏中...' : isSaving ? '保存中...' : '录屏'}
+            </Button>
+          </Col>
+          {lastRecordPath && (
+            <Col>
+              <Button
+                type="link"
+                onClick={handleOpenRecordFolder}
+                style={{ 
+                  padding: '0 12px',
+                  height: '50px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                已保存： {lastRecordPath}
+                <FolderOpenOutlined />
+              </Button>
+            </Col>
+          )}
+        </Row>
       </div>
     </div>
   )

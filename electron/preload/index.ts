@@ -56,6 +56,22 @@ const adbToolsAPI = {
   // 获取应用版本
   getAppVersion: () => ipcRenderer.invoke('app-version'),
   
+  // 获取用户主目录
+  getUserHomeDir: () => ipcRenderer.invoke('get-user-home-dir'),
+  
+  // 拼接路径
+  joinPath: (...paths: string[]) => ipcRenderer.invoke('join-path', ...paths),
+  
+  // 显示文件保存对话框
+  showSaveDialog: (options: {
+    title: string
+    defaultPath: string
+    filters: Array<{
+      name: string
+      extensions: string[]
+    }>
+  }) => ipcRenderer.invoke('show-save-dialog', options),
+  
   // 打开新窗口
   openWin: (arg: string) => ipcRenderer.invoke('open-win', arg),
   

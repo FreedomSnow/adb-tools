@@ -668,10 +668,10 @@ const DeviceManager: React.FC = () => {
       
       for (const [key, command] of Object.entries(commands)) {
         const result = await window.adbToolsAPI.execAdbCommand(`-s ${deviceId} ${command}`)
-        if (result.success) {
-          info[key] = result.data?.trim() || '-'
+        if (result.success && result.data?.trim()) {
+          info[key] = result.data.trim()
         } else {
-          info[key] = '-'
+          info[key] = 'NA'
         }
       }
 

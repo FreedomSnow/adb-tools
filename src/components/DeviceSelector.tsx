@@ -72,9 +72,22 @@ const DeviceSelector: React.FC<DeviceSelectorProps> = ({
     <div style={style}>
       <Space direction="vertical" style={{ width: '100%' }}>
         <div>
-          <Text strong>当前设备:</Text>
+          <Space align="center">
+            <Text strong>当前设备:</Text>
+            {selectedDevice && (
+              <Space>
+                {getConnectionIcon(selectedDevice.connection)}
+                <Text>{selectedDevice.device}</Text>
+                <Text code>{selectedDevice.id}</Text>
+                {getStatusTag(selectedDevice.status)}
+                <Text type="secondary">
+                  {selectedDevice.androidVersion && `Android ${selectedDevice.androidVersion}`}
+                </Text>
+              </Space>
+            )}
+          </Space>
           <Select
-            style={{ width: '100%', marginTop: 4 }}
+            style={{ width: '100%', marginTop: 8 }}
             placeholder={placeholder}
             value={selectedDevice?.id}
             onChange={handleDeviceChange}
@@ -84,37 +97,19 @@ const DeviceSelector: React.FC<DeviceSelectorProps> = ({
               <Option 
                 key={device.id} 
                 value={device.id}
-                label={device.model}
+                label={device.device}
                 disabled={device.status !== 'device'}
               >
                 <Space>
                   {getConnectionIcon(device.connection)}
                   <MobileOutlined />
-                  <span>{device.model}</span>
+                  <span>{device.device}</span>
                   {getStatusTag(device.status)}
                 </Space>
               </Option>
             ))}
           </Select>
         </div>
-        
-        {showStatus && selectedDevice && (
-          <div style={{ 
-            padding: '8px 12px', 
-            background: '#f6f8fa', 
-            borderRadius: '6px',
-            fontSize: '12px'
-          }}>
-            <Space>
-              <Text type="secondary">设备ID:</Text>
-              <Text code>{selectedDevice.id}</Text>
-              {getStatusTag(selectedDevice.status)}
-              <Text type="secondary">
-                {selectedDevice.androidVersion && `Android ${selectedDevice.androidVersion}`}
-              </Text>
-            </Space>
-          </div>
-        )}
         
         {!selectedDevice && devices.length > 0 && (
           <Alert

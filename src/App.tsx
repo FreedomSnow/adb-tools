@@ -49,18 +49,6 @@ const menuItems: MenuItem[] = [
     component: AppManager
   },
   {
-    key: 'files',
-    icon: <FolderOutlined />,
-    label: '文件管理',
-    component: FileManager
-  },
-  {
-    key: 'system',
-    icon: <MonitorOutlined />,
-    label: '系统信息',
-    component: SystemInfo
-  },
-  {
     key: 'commands',
     icon: <CodeOutlined />,
     label: '命令执行',
@@ -72,18 +60,30 @@ const menuItems: MenuItem[] = [
     label: '屏幕截图',
     component: ScreenCapture
   },
-  {
-    key: 'quick',
-    icon: <SettingOutlined />,
-    label: '快捷操作',
-    component: QuickActions
-  },
-  {
-    key: 'logcat',
-    icon: <FileTextOutlined />,
-    label: 'Logcat查看',
-    component: LogcatViewer
-  },
+  // {
+  //   key: 'quick',
+  //   icon: <SettingOutlined />,
+  //   label: '快捷操作',
+  //   component: QuickActions
+  // },
+  // {
+  //   key: 'system',
+  //   icon: <MonitorOutlined />,
+  //   label: '系统信息',
+  //   component: SystemInfo
+  // },
+  // {
+  //   key: 'files',
+  //   icon: <FolderOutlined />,
+  //   label: '文件管理',
+  //   component: FileManager
+  // },
+  // {
+  //   key: 'logcat',
+  //   icon: <FileTextOutlined />,
+  //   label: 'Logcat查看',
+  //   component: LogcatViewer
+  // },
 ]
 
 function App() {

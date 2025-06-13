@@ -604,6 +604,19 @@ const AppManager: React.FC = () => {
             <Title level={4} style={{ margin: 0 }}>应用管理</Title>
           </Col>
           <Col>
+            <Button 
+              icon={loading ? <StopOutlined /> : <ReloadOutlined />}
+              onClick={loading ? cancelAppLoading : refreshApps}
+              loading={loading}
+              danger={loading}
+              disabled={!selectedDevice || selectedDevice.status !== 'device'}
+            >
+              {loading ? '取消加载' : '刷新应用列表'}
+            </Button>
+          </Col>
+        </Row>
+        <Row gutter={16} align="middle" style={{ marginTop: 16 }}>
+          <Col>
             <Upload {...uploadProps}>
               <Button 
                 type="primary" 
@@ -615,27 +628,6 @@ const AppManager: React.FC = () => {
               </Button>
             </Upload>
           </Col>
-          <Col>
-            <Button 
-              icon={<ReloadOutlined />}
-              onClick={refreshApps}
-              loading={loading}
-              disabled={!selectedDevice || selectedDevice.status !== 'device'}
-            >
-              刷新
-            </Button>
-          </Col>
-          {loading && (
-            <Col>
-              <Button 
-                type="default"
-                danger
-                onClick={cancelAppLoading}
-              >
-                取消加载
-              </Button>
-            </Col>
-          )}
         </Row>
       </div>
 
@@ -716,7 +708,7 @@ const AppManager: React.FC = () => {
             </Col>
             <Col span={3}>
               <Space direction="vertical" size="small">
-                <Text strong>当前设备</Text>
+                <Text strong>当前选中设备</Text>
                 <Text type="secondary">
                   {selectedDevice ? selectedDevice.model : '未选择'}
                 </Text>

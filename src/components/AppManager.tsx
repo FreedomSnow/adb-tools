@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { 
   Card, 
   Button, 
@@ -35,6 +35,7 @@ import {
 } from '@ant-design/icons'
 import { useDevice } from '../contexts/DeviceContext'
 import DeviceSelector from './DeviceSelector'
+import { getInstalledApps, getAppCount, getPaginatedApps, type AppType } from '../utils/appUtils'
 // 导入类型声明
 import '../types/electron.d.ts'
 
@@ -57,6 +58,15 @@ interface AppInfo {
   isEnabled: boolean
   permissions: string[]
   icon?: string
+  isRunning?: boolean  // 添加运行状态字段
+}
+
+// 添加缓存接口
+interface AppDetailCache {
+  [key: string]: {
+    data: AppInfo
+    timestamp: number
+  }
 }
 
 const AppManager: React.FC = () => {
@@ -74,17 +84,33 @@ const AppManager: React.FC = () => {
   const [debugLogs, setDebugLogs] = useState<string[]>([])
   const [loadingProgress, setLoadingProgress] = useState(0)
   const [cancelLoading, setCancelLoading] = useState(false)
+  const [totalApps, setTotalApps] = useState(0)
+  const [loadedApps, setLoadedApps] = useState(0)
+  const [runningApps, setRunningApps] = useState<Set<string>>(new Set())
+  
+  // 添加缓存状态
+  const [appDetailCache, setAppDetailCache] = useState<AppDetailCache>({})
+  const [packageList, setPackageList] = useState<string[]>([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
 
+  // 缓存过期时间（5分钟）
+  const CACHE_EXPIRY = 5 * 60 * 1000
+
+  // 添加缓存刷新定时器引用
+  const cacheRefreshTimerRef = useRef<NodeJS.Timeout>()
+
+  // 检查缓存是否有效
+  const isCacheValid = (timestamp: number) => {
+    return Date.now() - timestamp < CACHE_EXPIRY
+  }
+
+  // 自动加载应用列表
   useEffect(() => {
-    if (selectedDevice && selectedDevice.status === 'device') {
-      // 防止重复调用，检查是否已经有应用数据
-      if (installedApps.length === 0 && !loading) {
-        loadInstalledApps()
-      }
-    } else {
-      setInstalledApps([])
+    if (selectedDevice?.status === 'device' && installedApps.length === 0 && !loading) {
+      loadInstalledApps()
     }
-  }, [selectedDevice?.id, selectedDevice?.status]) // 只依赖设备ID和状态，避免因设备信息更新导致重复调用
+  }, [selectedDevice?.status, installedApps.length, loading])
 
   useEffect(() => {
     let filtered = installedApps
@@ -107,131 +133,75 @@ const AppManager: React.FC = () => {
     setFilteredApps(filtered)
   }, [installedApps, filterType, searchText])
 
-  const loadInstalledApps = async () => {
-    if (!selectedDevice) {
-      message.error('请先选择设备')
-      return
-    }
+  // 检查并刷新缓存中的应用详情
+  const refreshCachedAppDetails = async (packageName: string) => {
+    const cached = appDetailCache[packageName]
+    if (!cached) return
 
-    if (selectedDevice.status !== 'device') {
-      message.error('设备未连接或未授权')
-      return
-    }
+    // 如果缓存未过期，不刷新
+    if (isCacheValid(cached.timestamp)) return
 
-    // 防止重复调用
-    if (loading) {
-      return
-    }
-
-    setLoading(true)
-    setLoadingProgress(0)
-    setCancelLoading(false)
-    
     try {
-      // 获取已安装的应用包名列表
-      const packagesResult = await window.adbToolsAPI.execAdbCommand(`-s ${selectedDevice.id} shell pm list packages`)
-      
-      if (!packagesResult.success) {
-        throw new Error(packagesResult.error || '获取应用列表失败')
-      }
-
-      const packages = packagesResult.data?.split('\n')
-        .filter(line => line.startsWith('package:'))
-        .map(line => line.replace('package:', '').trim())
-        .filter(pkg => pkg.length > 0) // 过滤空包名
-      
-      if (!packages?.length) {
-        setInstalledApps([])
-        setLoading(false)
-        setLoadingProgress(0)
-        message.info('设备上未找到已安装的应用')
-        return
-      }
-
-      console.log(`找到 ${packages.length} 个应用包，开始获取详细信息...`)
-
-      // 大幅减少批次大小和增加延迟，防止UI卡顿
-      const BATCH_SIZE = 3  // 减少到3个
-      const DELAY_BETWEEN_BATCHES = 300  // 增加延迟到300ms
-      const validApps: AppInfo[] = []
-      let processedCount = 0
-
-      // 使用更保守的分批策略
-      for (let i = 0; i < packages.length; i += BATCH_SIZE) {
-        const batch = packages.slice(i, i + BATCH_SIZE)
-        
-        try {
-          // 串行处理批次内的每个应用，避免并发过多
-          for (const packageName of batch) {
-            // 检查是否取消加载
-            if (cancelLoading) {
-              console.log('用户取消加载')
-              setLoading(false)
-              setLoadingProgress(0)
-              return
-            }
-            
-            try {
-              const appInfo = await getAppDetails(packageName)
-              if (appInfo) {
-                validApps.push(appInfo)
-                
-                // 每获取一个应用就更新UI，提供更好的响应性
-                setInstalledApps([...validApps])
-                
-                // 小延迟，让UI有时间响应
-                await new Promise(resolve => setTimeout(resolve, 50))
-              }
-            } catch (error) {
-              console.warn(`获取应用详情失败: ${packageName}`, error)
-            }
-            
-            processedCount++
-            
-            // 更新进度
-            const progress = Math.round((processedCount / packages.length) * 100)
-            setLoadingProgress(progress)
-            
-            // 每10个应用显示一次进度
-            if (processedCount % 10 === 0) {
-              console.log(`已处理 ${processedCount}/${packages.length} 个应用 (${progress}%)`)
-            }
+      const newAppInfo = await getAppDetails(packageName)
+      if (newAppInfo) {
+        // 更新缓存
+        setAppDetailCache(prev => ({
+          ...prev,
+          [packageName]: {
+            data: newAppInfo,
+            timestamp: Date.now()
           }
+        }))
 
-          // 批次间的较长延迟，确保UI响应性
-          if (i + BATCH_SIZE < packages.length) {
-            await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES))
+        // 如果应用当前显示在页面上，更新显示
+        setInstalledApps(prev => {
+          const index = prev.findIndex(app => app.packageName === packageName)
+          if (index !== -1) {
+            const newApps = [...prev]
+            newApps[index] = newAppInfo
+            return newApps
           }
-
-        } catch (batchError) {
-          console.error(`批次处理出错 (${i}-${i + BATCH_SIZE}):`, batchError)
-          // 继续处理下一批
-        }
+          return prev
+        })
       }
-
-      setLoading(false)
-      setLoadingProgress(100)
-      
-      if (validApps.length > 0) {
-        message.success(`从设备 ${selectedDevice.model} 获取到 ${validApps.length} 个应用`)
-        console.log(`应用加载完成，共 ${validApps.length} 个有效应用`)
-      } else {
-        message.warning('未能获取到有效的应用信息')
-      }
-      
-      // 重置进度
-      setTimeout(() => setLoadingProgress(0), 2000)
-      
-    } catch (error: any) {
-      console.error('获取应用列表失败:', error)
-      message.error(`获取应用列表失败: ${error.message}`)
-      setLoading(false)
-      setLoadingProgress(0)
+    } catch (error) {
+      console.error(`刷新应用详情失败: ${packageName}`, error)
     }
   }
 
-  // 获取应用详细信息
+  // 设置缓存刷新定时器
+  useEffect(() => {
+    // 清除旧的定时器
+    if (cacheRefreshTimerRef.current) {
+      clearInterval(cacheRefreshTimerRef.current)
+    }
+
+    // 设置新的定时器，每分钟检查一次缓存
+    cacheRefreshTimerRef.current = setInterval(() => {
+      // 获取当前显示在页面上的应用包名
+      const visiblePackages = filteredApps.map(app => app.packageName)
+      
+      // 检查并刷新这些应用的缓存
+      visiblePackages.forEach(packageName => {
+        refreshCachedAppDetails(packageName)
+      })
+    }, 60000) // 每分钟检查一次
+
+    return () => {
+      if (cacheRefreshTimerRef.current) {
+        clearInterval(cacheRefreshTimerRef.current)
+      }
+    }
+  }, [filteredApps]) // 当过滤后的应用列表变化时重新设置定时器
+
+  // 获取应用详情（带缓存）
   const getAppDetails = async (packageName: string): Promise<AppInfo | null> => {
+    // 检查缓存
+    const cached = appDetailCache[packageName]
+    if (cached && isCacheValid(cached.timestamp)) {
+      return cached.data
+    }
+
     const addDebugLog = (log: string) => {
       if (debugMode) {
         setDebugLogs(prev => [...prev.slice(-49), `[${new Date().toLocaleTimeString()}] ${log}`])
@@ -251,7 +221,7 @@ const AppManager: React.FC = () => {
 
       addDebugLog(`应用包 ${packageName} 存在，继续获取详细信息`)
 
-      // 并行获取应用信息，并添加更好的错误处理
+      // 并行获取应用信息
       const [pathResult, versionResult] = await Promise.allSettled([
         window.adbToolsAPI.execAdbCommand(`-s ${selectedDevice!.id} shell pm path ${packageName}`),
         window.adbToolsAPI.execAdbCommand(`-s ${selectedDevice!.id} shell dumpsys package ${packageName} | grep versionName`)
@@ -262,10 +232,6 @@ const AppManager: React.FC = () => {
       if (pathResult.status === 'fulfilled' && pathResult.value.success && pathResult.value.data) {
         isSystemApp = pathResult.value.data.includes('/system/')
         addDebugLog(`获取应用路径成功: ${packageName} (系统应用: ${isSystemApp})`)
-      } else if (pathResult.status === 'rejected') {
-        addDebugLog(`获取应用路径失败: ${packageName} - ${pathResult.reason}`)
-      } else if (pathResult.status === 'fulfilled' && !pathResult.value.success) {
-        addDebugLog(`获取应用路径失败: ${packageName} - ${pathResult.value.error}`)
       }
       
       // 处理版本信息
@@ -280,20 +246,15 @@ const AppManager: React.FC = () => {
         if (codeMatch) {
           versionCode = codeMatch[1]
         }
-        addDebugLog(`获取应用版本成功: ${packageName} v${version} (${versionCode})`)
-      } else if (versionResult.status === 'rejected') {
-        addDebugLog(`获取应用版本失败: ${packageName} - ${versionResult.reason}`)
-      } else if (versionResult.status === 'fulfilled' && !versionResult.value.success) {
-        addDebugLog(`获取应用版本失败: ${packageName} - ${versionResult.value.error}`)
       }
 
-      // 获取应用名称（简化处理）
+      // 获取应用名称
       let appName = packageName.split('.').pop() || packageName
       if (appName.length > 20) {
         appName = appName.substring(0, 20) + '...'
       }
 
-      return {
+      const appInfo: AppInfo = {
         packageName,
         appName,
         version,
@@ -304,14 +265,104 @@ const AppManager: React.FC = () => {
         installTime: '未知',
         updateTime: '未知',
         isSystemApp,
-        isEnabled: true, // 简化处理，默认为启用
-        permissions: [] // 简化处理，暂不获取权限列表
+        isEnabled: true,
+        permissions: []
       }
+
+      // 更新缓存
+      setAppDetailCache(prev => ({
+        ...prev,
+        [packageName]: {
+          data: appInfo,
+          timestamp: Date.now()
+        }
+      }))
+
+      return appInfo
     } catch (error) {
       console.error(`获取应用详情失败: ${packageName}`, error)
       return null
     }
   }
+
+  // 修改加载当前页应用详情函数
+  const loadCurrentPageDetails = async () => {
+    if (!packageList.length) return
+
+    const startIndex = (currentPage - 1) * pageSize
+    const endIndex = Math.min(startIndex + pageSize, packageList.length)
+    const currentPagePackages = packageList.slice(startIndex, endIndex)
+
+    for (const packageName of currentPagePackages) {
+      if (cancelLoading) {
+        setLoading(false)
+        setCancelLoading(false)
+        return
+      }
+
+      // 检查缓存是否需要刷新
+      const cached = appDetailCache[packageName]
+      if (cached && !isCacheValid(cached.timestamp)) {
+        // 如果缓存过期，静默刷新
+        refreshCachedAppDetails(packageName)
+      }
+
+      const appInfo = await getAppDetails(packageName)
+      if (appInfo) {
+        setInstalledApps(prev => {
+          const newApps = [...prev]
+          const index = newApps.findIndex(app => app.packageName === packageName)
+          if (index === -1) {
+            newApps.push(appInfo)
+          } else {
+            newApps[index] = appInfo
+          }
+          return newApps
+        })
+        setLoadedApps(prev => prev + 1)
+      }
+    }
+  }
+
+  // 修改加载应用列表函数
+  const loadInstalledApps = async () => {
+    if (!selectedDevice || selectedDevice.status !== 'device') {
+      message.error('请先选择设备')
+      return
+    }
+
+    setLoading(true)
+    setLoadedApps(0)
+    setTotalApps(0)
+    setInstalledApps([])
+
+    try {
+      // 使用工具类获取应用列表
+      const apps = await getInstalledApps(selectedDevice.id, appType)
+
+      if (loadingCancelled) {
+        return
+      }
+
+      // 更新总数和应用列表
+      const total = getAppCount(apps, appType)
+      setTotalApps(total)
+      setInstalledApps(apps)
+      setLoadedApps(apps.length)
+    } catch (error) {
+      console.error('加载应用列表失败:', error)
+      message.error('加载应用列表失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 监听分页变化
+  useEffect(() => {
+    if (packageList.length > 0) {
+      loadCurrentPageDetails()
+    }
+  }, [currentPage, pageSize])
 
   const installApk = async (file: File) => {
     if (!selectedDevice) {
@@ -397,6 +448,20 @@ const AppManager: React.FC = () => {
     })
   }
 
+  // 添加检查应用运行状态的函数
+  const checkAppRunningStatus = async (packageName: string) => {
+    if (!selectedDevice) return false
+    
+    try {
+      const result = await window.adbToolsAPI.execAdbCommand(`-s ${selectedDevice.id} shell pidof ${packageName}`)
+      return result.success && result.data && result.data.trim().length > 0
+    } catch (error) {
+      console.error(`检查应用运行状态失败: ${packageName}`, error)
+      return false
+    }
+  }
+
+  // 修改启动应用函数
   const startApp = async (packageName: string, appName: string) => {
     if (!selectedDevice) {
       message.error('请先选择设备')
@@ -404,16 +469,14 @@ const AppManager: React.FC = () => {
     }
 
     try {
-      // 使用更简单的启动方式
       const startResult = await window.adbToolsAPI.execAdbCommand(`-s ${selectedDevice.id} shell am start -n ${packageName}/.MainActivity`)
       
-      // 如果第一种方式失败，尝试使用monkey命令
       if (!startResult.success) {
         const monkeyResult = await window.adbToolsAPI.execAdbCommand(`-s ${selectedDevice.id} shell monkey -p ${packageName} -c android.intent.category.LAUNCHER 1`)
         
-        // monkey命令通常会输出调试信息，但只要没有明确的错误就认为成功
         if (monkeyResult.success || (monkeyResult.error && !monkeyResult.error.includes('No activities found'))) {
           message.success(`正在从 ${selectedDevice.model} 启动 ${appName}`)
+          setRunningApps(prev => new Set([...prev, packageName]))
           return
         }
         
@@ -421,13 +484,14 @@ const AppManager: React.FC = () => {
       }
       
       message.success(`正在从 ${selectedDevice.model} 启动 ${appName}`)
+      setRunningApps(prev => new Set([...prev, packageName]))
     } catch (error: any) {
-      // 尝试第三种启动方式
       try {
         const intentResult = await window.adbToolsAPI.execAdbCommand(`-s ${selectedDevice.id} shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER ${packageName}`)
         
         if (intentResult.success) {
           message.success(`正在从 ${selectedDevice.model} 启动 ${appName}`)
+          setRunningApps(prev => new Set([...prev, packageName]))
         } else {
           message.error(`启动应用失败: ${error.message}`)
         }
@@ -437,6 +501,7 @@ const AppManager: React.FC = () => {
     }
   }
 
+  // 修改停止应用函数
   const stopApp = async (packageName: string, appName: string) => {
     if (!selectedDevice) {
       message.error('请先选择设备')
@@ -448,6 +513,11 @@ const AppManager: React.FC = () => {
       
       if (stopResult.success) {
         message.success(`已在 ${selectedDevice.model} 上停止 ${appName}`)
+        setRunningApps(prev => {
+          const newSet = new Set(prev)
+          newSet.delete(packageName)
+          return newSet
+        })
       } else {
         throw new Error(stopResult.error || '停止失败')
       }
@@ -455,6 +525,30 @@ const AppManager: React.FC = () => {
       message.error(`停止应用失败: ${error.message}`)
     }
   }
+
+  // 添加定期检查应用运行状态的函数
+  useEffect(() => {
+    if (!selectedDevice || selectedDevice.status !== 'device') return
+
+    const checkRunningApps = async () => {
+      const newRunningApps = new Set<string>()
+      for (const app of installedApps) {
+        const isRunning = await checkAppRunningStatus(app.packageName)
+        if (isRunning) {
+          newRunningApps.add(app.packageName)
+        }
+      }
+      setRunningApps(newRunningApps)
+    }
+
+    // 初始检查
+    checkRunningApps()
+
+    // 每30秒检查一次
+    const interval = setInterval(checkRunningApps, 30000)
+
+    return () => clearInterval(interval)
+  }, [selectedDevice, installedApps])
 
   const showAppDetail = (app: AppInfo) => {
     setSelectedApp(app)
@@ -476,8 +570,8 @@ const AppManager: React.FC = () => {
 
   const columns = [
     {
-      title: '应用',
-      key: 'app',
+      title: '应用名称',
+      key: 'appName',
       render: (_: any, record: AppInfo) => (
         <Space>
           <Avatar 
@@ -495,22 +589,12 @@ const AppManager: React.FC = () => {
       )
     },
     {
-      title: '版本',
+      title: '版本号',
       dataIndex: 'version',
       key: 'version',
-      render: (version: string, record: AppInfo) => (
-        <div>
-          <div>{version}</div>
-          <Text type="secondary" style={{ fontSize: '12px' }}>
-            Code: {record.versionCode}
-          </Text>
-        </div>
+      render: (version: string) => (
+        <Text>{version}</Text>
       )
-    },
-    {
-      title: '大小',
-      dataIndex: 'size',
-      key: 'size'
     },
     {
       title: '类型',
@@ -531,6 +615,13 @@ const AppManager: React.FC = () => {
       )
     },
     {
+      title: '更新时间',
+      key: 'updateTime',
+      render: (_: any, record: AppInfo) => (
+        <Text>{record.updateTime}</Text>
+      )
+    },
+    {
       title: '操作',
       key: 'action',
       render: (_: any, record: AppInfo) => (
@@ -546,20 +637,14 @@ const AppManager: React.FC = () => {
           <Button 
             type="link" 
             size="small"
-            icon={<PlayCircleOutlined />}
-            onClick={() => startApp(record.packageName, record.appName)}
+            icon={runningApps.has(record.packageName) ? <StopOutlined /> : <PlayCircleOutlined />}
+            onClick={() => runningApps.has(record.packageName) 
+              ? stopApp(record.packageName, record.appName)
+              : startApp(record.packageName, record.appName)
+            }
             disabled={!selectedDevice || selectedDevice.status !== 'device'}
           >
-            启动
-          </Button>
-          <Button 
-            type="link" 
-            size="small"
-            icon={<StopOutlined />}
-            onClick={() => stopApp(record.packageName, record.appName)}
-            disabled={!selectedDevice || selectedDevice.status !== 'device'}
-          >
-            停止
+            {runningApps.has(record.packageName) ? '停止' : '启动'}
           </Button>
           {!record.isSystemApp && (
             <Button 
@@ -596,23 +681,15 @@ const AppManager: React.FC = () => {
     message.info('正在取消加载...')
   }
 
+  // 修改表格数据源
+  const tableDataSource = getPaginatedApps(installedApps, currentPage, pageSize)
+
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
         <Row gutter={16} align="middle">
           <Col>
             <Title level={4} style={{ margin: 0 }}>应用管理</Title>
-          </Col>
-          <Col>
-            <Button 
-              icon={loading ? <StopOutlined /> : <ReloadOutlined />}
-              onClick={loading ? cancelAppLoading : refreshApps}
-              loading={loading}
-              danger={loading}
-              disabled={!selectedDevice || selectedDevice.status !== 'device'}
-            >
-              {loading ? '取消加载' : '刷新应用列表'}
-            </Button>
           </Col>
         </Row>
         <Row gutter={16} align="middle" style={{ marginTop: 16 }}>
@@ -648,85 +725,42 @@ const AppManager: React.FC = () => {
         </Card>
       )}
 
-      {loading && loadingProgress > 0 && (
-        <Card size="small" style={{ marginBottom: 16 }}>
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <Space align="center">
-              <Text>正在加载应用列表...</Text>
-              <Text type="secondary">({installedApps.length} 个应用已加载)</Text>
-              <Button 
-                type="link" 
-                size="small"
-                danger 
-                onClick={cancelAppLoading}
-              >
-                取消
-              </Button>
-            </Space>
-            <Progress 
-              percent={loadingProgress}
-              status={cancelLoading ? 'exception' : 'active'}
-              format={(percent) => `${percent}%`}
-            />
-          </Space>
-        </Card>
-      )}
-
       <Card>
         {/* 过滤控制面板 */}
         <div style={{ marginBottom: 16, padding: '12px', background: '#fafafa', borderRadius: '6px' }}>
           <Row gutter={16} align="middle">
-            <Col span={8}>
-              <Text strong>搜索应用:</Text>
-              <Search
-                placeholder="搜索应用名称或包名"
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                style={{ marginTop: 4 }}
-                allowClear
-              />
-            </Col>
             <Col span={5}>
               <Text strong>应用类型:</Text>
-              <Select 
-                value={filterType} 
+              <Select
+                value={filterType}
                 onChange={setFilterType}
                 style={{ width: '100%', marginTop: 4 }}
               >
-                <Option value="all">全部应用</Option>
-                <Option value="user">用户应用</Option>
-                <Option value="system">系统应用</Option>
+                <Select.Option value="all">全部应用</Select.Option>
+                <Select.Option value="system">系统应用</Select.Option>
+                <Select.Option value="user">用户应用</Select.Option>
               </Select>
             </Col>
             <Col span={4}>
-              <Space direction="vertical" size="small">
-                <Text strong>统计信息</Text>
-                <Text type="secondary">
-                  总计: {installedApps.length} | 显示: {filteredApps.length}
-                </Text>
-              </Space>
+              <Button
+                type="primary"
+                icon={<ReloadOutlined />}
+                onClick={loadInstalledApps}
+                loading={loading}
+                style={{ marginTop: 28 }}
+                disabled={!selectedDevice || selectedDevice.status !== 'device'}
+              >
+                {loading ? `加载中 ${loadedApps}/${totalApps}` : '加载应用列表'}
+              </Button>
             </Col>
-            <Col span={3}>
-              <Space direction="vertical" size="small">
-                <Text strong>当前选中设备</Text>
-                <Text type="secondary">
-                  {selectedDevice ? selectedDevice.model : '未选择'}
-                </Text>
-              </Space>
+            <Col span={4} style={{ textAlign: 'right' }}>
+              <Button
+                type="primary"
+                icon={<SearchOutlined />}
+                style={{ marginTop: 28 }}
+              />
             </Col>
-            <Col span={4}>
-              <Space direction="vertical" size="small">
-                <Space>
-                  <BugOutlined />
-                  <Text strong>调试模式</Text>
-                </Space>
-                <Switch
-                  checked={debugMode}
-                  onChange={setDebugMode}
-                  size="small"
-                />
-              </Space>
-            </Col>
+            <Col span={11} />
           </Row>
         </div>
 
@@ -779,17 +813,26 @@ const AppManager: React.FC = () => {
         )}
 
         <Table
+          dataSource={tableDataSource}
           columns={columns}
-          dataSource={filteredApps}
           rowKey="packageName"
-          loading={loading}
           pagination={{
-            pageSize: 10,
+            current: currentPage,
+            pageSize: pageSize,
+            total: totalApps,
             showSizeChanger: true,
             showQuickJumper: true,
-            showTotal: (total) => `共 ${total} 个应用`
+            showTotal: (total) => `共 ${total} 条`,
+            onChange: (page, size) => {
+              setCurrentPage(page)
+              setPageSize(size)
+            }
           }}
-          size="middle"
+          loading={loading}
+          scroll={{ y: 'calc(100vh - 300px)' }}
+          onRow={(record) => ({
+            onClick: () => showAppDetail(record)
+          })}
         />
       </Card>
 

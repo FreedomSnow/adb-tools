@@ -32,6 +32,18 @@ const ScreenCapture: React.FC = () => {
     console.log('录屏功能待实现')
   }
 
+  const handleOpenScreenshotFolder = async () => {
+    if (!lastScreenshotPath) return
+    try {
+      const dirPath = lastScreenshotPath.substring(0, lastScreenshotPath.lastIndexOf('/'))
+      console.log(dirPath)
+      await window.adbToolsAPI.openFolder(dirPath)
+    } catch (error) {
+      console.error('打开文件夹失败:', error)
+      message.error('打开文件夹失败')
+    }
+  }
+
   const buttonStyle = {
     width: '100px',
     height: '50px',
@@ -71,6 +83,7 @@ const ScreenCapture: React.FC = () => {
           {lastScreenshotPath && (
             <Button
               type="link"
+              onClick={handleOpenScreenshotFolder}
               style={{ 
                 padding: '0 12px',
                 height: '50px',

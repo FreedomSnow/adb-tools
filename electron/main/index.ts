@@ -200,6 +200,17 @@ ipcMain.handle('open-win', (_, arg) => {
   }
 })
 
+// 打开文件夹
+ipcMain.handle('open-folder', async (_, path: string) => {
+  try {
+    await shell.openPath(path)
+    return { success: true }
+  } catch (error) {
+    console.error('打开文件夹失败:', error)
+    return { success: false, error: error.message }
+  }
+})
+
 // ADB命令队列管理，防止过多并发导致系统卡顿
 class ADBCommandQueue {
   private queue: Array<() => Promise<any>> = []

@@ -29,6 +29,9 @@ interface AdbToolsAPI {
   // 打开新窗口
   openWin: (arg: string) => Promise<void>
   
+  // 打开文件夹
+  openFolder: (path: string) => Promise<void>
+  
   // 执行ADB命令
   execAdbCommand: (command: string) => Promise<{
     success: boolean

@@ -56,6 +56,22 @@ const adbToolsAPI = {
   // 获取应用版本
   getAppVersion: () => ipcRenderer.invoke('app-version'),
   
+  // 获取用户主目录
+  getUserHomeDir: () => ipcRenderer.invoke('get-user-home-dir'),
+  
+  // 拼接路径
+  joinPath: (...paths: string[]) => ipcRenderer.invoke('join-path', ...paths),
+  
+  // 显示文件保存对话框
+  showSaveDialog: (options: {
+    title: string
+    defaultPath: string
+    filters: Array<{
+      name: string
+      extensions: string[]
+    }>
+  }) => ipcRenderer.invoke('show-save-dialog', options),
+  
   // 打开新窗口
   openWin: (arg: string) => ipcRenderer.invoke('open-win', arg),
   
@@ -86,7 +102,34 @@ const adbToolsAPI = {
 }
 
 // 将API暴露给渲染进程
-contextBridge.exposeInMainWorld('adbToolsAPI', adbToolsAPI)
+contextBridge.exposeInMainWorld('adbToolsAPI', {
+  getAdbPath: () => ipcRenderer.invoke('get-adb-path'),
+  getAppVersion: () => ipcRenderer.invoke('app-version'),
+  getUserHomeDir: () => ipcRenderer.invoke('get-user-home-dir'),
+  joinPath: (...paths: string[]) => ipcRenderer.invoke('join-path', ...paths),
+  showSaveDialog: (options: {
+    title: string
+    defaultPath: string
+    filters: Array<{
+      name: string
+      extensions: string[]
+    }>
+  }) => ipcRenderer.invoke('show-save-dialog', options),
+  openWin: (arg: string) => ipcRenderer.invoke('open-win', arg),
+  openFolder: (path: string) => ipcRenderer.invoke('open-folder', path),
+  execAdbCommand: (command: string) => ipcRenderer.invoke('exec-adb-command', command),
+  getDevices: () => ipcRenderer.invoke('get-devices'),
+  restartAdbServer: () => ipcRenderer.invoke('restart-adb-server'),
+  getQueueStatus: () => ipcRenderer.invoke('get-queue-status'),
+  installApk: (fileData: Uint8Array | Buffer, fileName: string, deviceId: string) => 
+    ipcRenderer.invoke('install-apk', fileData, fileName, deviceId),
+  onMainProcessMessage: (callback: (message: string) => void) => {
+    ipcRenderer.on('main-process-message', (_, message) => callback(message))
+  },
+  removeAllListeners: (channel: string) => {
+    ipcRenderer.removeAllListeners(channel)
+  }
+})
 
 /**
  * https://tobiasahlin.com/spinkit

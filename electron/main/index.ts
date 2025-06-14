@@ -518,7 +518,7 @@ ipcMain.handle('get-queue-status', () => {
 })
 
 // 安装APK
-ipcMain.handle('install-apk', async (_, fileData: Buffer | Uint8Array, fileName: string, deviceId: string) => {
+ipcMain.handle('install-apk', async (_, fileData: Buffer | Uint8Array, fileName: string, deviceId: string, installOptions?: string) => {
   try {
     const adbPath = app.isPackaged
       ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
@@ -547,8 +547,8 @@ ipcMain.handle('install-apk', async (_, fileData: Buffer | Uint8Array, fileName:
     const pushResult = await execAsync(pushCommand)
     console.log('推送结果:', pushResult)
     
-    // 安装APK
-    const installCommand = `"${adbPath}" -s ${deviceId} shell pm install -r "${devicePath}"`
+    // 安装APK，添加安装参数
+    const installCommand = `"${adbPath}" -s ${deviceId} shell pm install ${installOptions || ''} "${devicePath}"`
     
     console.log('安装APK命令:', installCommand)
     

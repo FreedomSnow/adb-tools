@@ -39,7 +39,7 @@ interface AdbToolsAPI {
   }>
   
   // 安装APK
-  installApk: (fileData: Uint8Array | Buffer, fileName: string, deviceId: string) => Promise<{
+  installApk: (fileData: Uint8Array | Buffer, fileName: string, deviceId: string, installOptions?: string) => Promise<{
     success: boolean
     data?: string
     error?: string

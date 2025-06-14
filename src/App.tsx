@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Layout, Menu, Typography, Button, Space, notification } from 'antd'
+import { Layout, Menu, Typography, Button, Space, notification, Row, Col } from 'antd'
 import { 
   MobileOutlined, 
   FileTextOutlined, 
@@ -10,7 +10,9 @@ import {
   SettingOutlined,
   CameraOutlined,
   VideoCameraOutlined,
-  BugOutlined
+  BugOutlined,
+  SearchOutlined,
+  ArrowLeftOutlined
 } from '@ant-design/icons'
 import { DeviceProvider } from './contexts/DeviceContext'
 import { PageProvider, usePage } from './contexts/PageContext'
@@ -24,6 +26,7 @@ import QuickActions from './components/QuickActions'
 import ScreenCapture from './components/ScreenCapture'
 import QueueMonitor from './components/QueueMonitor'
 import InstallApk from './components/InstallApk'
+import SearchPage from './components/SearchPage'
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 // 导入类型声明
 import './types/electron.d.ts'
@@ -172,6 +175,7 @@ const MainLayout: React.FC = () => {
             <Route path="/commands" element={<CommandExecutor />} />
             <Route path="/screen" element={<ScreenCapture />} />
             <Route path="/install-apk" element={<InstallApk />} />
+            <Route path="/search" element={<SearchPage />} />
           </Routes>
         </Content>
       </Layout>

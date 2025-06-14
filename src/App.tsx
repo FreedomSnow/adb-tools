@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Layout, Menu, Typography, Button, Space, notification } from 'antd'
+import { Layout, Menu, Typography, Button, Space, notification, Row, Col } from 'antd'
 import { 
   MobileOutlined, 
   FileTextOutlined, 
@@ -10,7 +10,9 @@ import {
   SettingOutlined,
   CameraOutlined,
   VideoCameraOutlined,
-  BugOutlined
+  BugOutlined,
+  SearchOutlined,
+  ArrowLeftOutlined
 } from '@ant-design/icons'
 import { DeviceProvider } from './contexts/DeviceContext'
 import { PageProvider, usePage } from './contexts/PageContext'
@@ -130,8 +132,9 @@ const MainLayout: React.FC = () => {
   const handleMenuClick = (key: string) => {
     setSelectedKey(key)
     const pageState = getPageState(key)
-    if (pageState.path.length > 0) {
-      navigate(`/${key}/${pageState.path.join('/')}`)
+    // 如果有最后访问的路径，则导航到该路径
+    if (pageState.lastPath) {
+      navigate(`/${key}/${pageState.lastPath}`)
     } else {
       navigate(`/${key}`)
     }
@@ -167,10 +170,10 @@ const MainLayout: React.FC = () => {
         <Content style={{ margin: '16px', padding: '24px', background: '#fff' }}>
           <Routes>
             <Route path="/" element={<DeviceManager />} />
-            <Route path="/devices" element={<DeviceManager />} />
-            <Route path="/apps" element={<AppManager />} />
-            <Route path="/commands" element={<CommandExecutor />} />
-            <Route path="/screen" element={<ScreenCapture />} />
+            <Route path="/devices/*" element={<DeviceManager />} />
+            <Route path="/apps/*" element={<AppManager />} />
+            <Route path="/commands/*" element={<CommandExecutor />} />
+            <Route path="/screen/*" element={<ScreenCapture />} />
             <Route path="/install-apk" element={<InstallApk />} />
           </Routes>
         </Content>

@@ -13,6 +13,7 @@ import {
   BugOutlined
 } from '@ant-design/icons'
 import { DeviceProvider } from './contexts/DeviceContext'
+import { PageProvider, usePage } from './contexts/PageContext'
 import DeviceManager from './components/DeviceManager'
 import LogcatViewer from './components/LogcatViewer'
 import AppManager from './components/AppManager'
@@ -23,12 +24,12 @@ import QuickActions from './components/QuickActions'
 import ScreenCapture from './components/ScreenCapture'
 import QueueMonitor from './components/QueueMonitor'
 import InstallApk from './components/InstallApk'
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 // 导入类型声明
 import './types/electron.d.ts'
 
 const { Header, Sider, Content } = Layout
-const { Title } = Typography
+const { Title, Text } = Typography
 
 type MenuItem = {
   key: string
@@ -89,9 +90,24 @@ const menuItems: MenuItem[] = [
 ]
 
 const App: React.FC = () => {
+  return (
+    <Router>
+      <DeviceProvider>
+        <PageProvider>
+          <MainLayout />
+        </PageProvider>
+      </DeviceProvider>
+    </Router>
+  )
+}
+
+const MainLayout: React.FC = () => {
   const [selectedKey, setSelectedKey] = useState('devices')
   const [appVersion, setAppVersion] = useState('')
   const [collapsed, setCollapsed] = useState(false)
+  const { setPageState, getPageState } = usePage()
+  const navigate = useNavigate()
+  const location = useLocation()
 
   useEffect(() => {
     // 获取应用版本
@@ -113,148 +129,53 @@ const App: React.FC = () => {
 
   const handleMenuClick = (key: string) => {
     setSelectedKey(key)
+    const pageState = getPageState(key)
+    if (pageState.path.length > 0) {
+      navigate(`/${key}/${pageState.path.join('/')}`)
+    } else {
+      navigate(`/${key}`)
+    }
   }
 
   const currentMenuItem = menuItems.find(item => item.key === selectedKey)
   const CurrentComponent = currentMenuItem?.component || DeviceManager
 
   return (
-    <Router>
-      <DeviceProvider>
-        <Routes>
-          <Route path="/" element={
-            <div className="app-container">
-              <Layout style={{ height: '100vh' }}>
-                <Header className="header" style={{ 
-                  background: '#fff', 
-                  padding: '0 24px', 
-                  borderBottom: '1px solid #d9d9d9',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <BugOutlined style={{ fontSize: '24px', color: '#1890ff', marginRight: '12px' }} />
-                    <Title level={3} style={{ margin: 0, color: '#1890ff' }}>
-                      ADB Tools
-                    </Title>
-                    <span style={{ marginLeft: '16px', color: '#666', fontSize: '14px' }}>
-                      Android调试工具集成平台
-                    </span>
-                  </div>
-                  <Space>
-                    <QueueMonitor />
-                    <span style={{ fontSize: '12px', color: '#999' }}>
-                      版本: {appVersion || '1.0.0'}
-                    </span>
-                  </Space>
-                </Header>
-                
-                <Layout>
-                  <Sider 
-                    className="sidebar"
-                    collapsible 
-                    collapsed={collapsed} 
-                    onCollapse={setCollapsed}
-                    theme="light"
-                    width={250}
-                  >
-                    <Menu
-                      mode="inline"
-                      selectedKeys={[selectedKey]}
-                      style={{ height: '100%', borderRight: 0 }}
-                      items={menuItems.map(item => ({
-                        key: item.key,
-                        icon: item.icon,
-                        label: item.label,
-                        onClick: () => handleMenuClick(item.key)
-                      }))}
-                    />
-                  </Sider>
-                  
-                  <Content 
-                    className="main-content" 
-                    style={{ 
-                      padding: '24px', 
-                      background: '#fff',
-                      overflow: 'auto',
-                      height: 'calc(100vh - 64px)' // 减去header高度
-                    }}
-                  >
-                    <CurrentComponent />
-                  </Content>
-                </Layout>
-              </Layout>
-            </div>
-          } />
-          <Route path="/install-apk" element={
-            <div className="app-container">
-              <Layout style={{ height: '100vh' }}>
-                <Header className="header" style={{ 
-                  background: '#fff', 
-                  padding: '0 24px', 
-                  borderBottom: '1px solid #d9d9d9',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <BugOutlined style={{ fontSize: '24px', color: '#1890ff', marginRight: '12px' }} />
-                    <Title level={3} style={{ margin: 0, color: '#1890ff' }}>
-                      ADB Tools
-                    </Title>
-                    <span style={{ marginLeft: '16px', color: '#666', fontSize: '14px' }}>
-                      Android调试工具集成平台
-                    </span>
-                  </div>
-                  <Space>
-                    <QueueMonitor />
-                    <span style={{ fontSize: '12px', color: '#999' }}>
-                      版本: {appVersion || '1.0.0'}
-                    </span>
-                  </Space>
-                </Header>
-                
-                <Layout>
-                  <Sider 
-                    className="sidebar"
-                    collapsible 
-                    collapsed={collapsed} 
-                    onCollapse={setCollapsed}
-                    theme="light"
-                    width={250}
-                  >
-                    <Menu
-                      mode="inline"
-                      selectedKeys={[selectedKey]}
-                      style={{ height: '100%', borderRight: 0 }}
-                      items={menuItems.map(item => ({
-                        key: item.key,
-                        icon: item.icon,
-                        label: item.label,
-                        onClick: () => handleMenuClick(item.key)
-                      }))}
-                    />
-                  </Sider>
-                  
-                  <Content 
-                    className="main-content" 
-                    style={{ 
-                      padding: '24px', 
-                      background: '#fff',
-                      overflow: 'auto',
-                      height: 'calc(100vh - 64px)' // 减去header高度
-                    }}
-                  >
-                    <InstallApk />
-                  </Content>
-                </Layout>
-              </Layout>
-            </div>
-          } />
-        </Routes>
-      </DeviceProvider>
-    </Router>
+    <Layout style={{ minHeight: '100vh' }}>
+      <Sider 
+        collapsible 
+        collapsed={collapsed} 
+        onCollapse={setCollapsed}
+        theme="light"
+      >
+        <div style={{ padding: '16px', textAlign: 'center' }}>
+          <Title level={4} style={{ margin: 0 }}>ADB Tools</Title>
+          <Typography.Text type="secondary" style={{ fontSize: '12px' }}>v{appVersion}</Typography.Text>
+        </div>
+        <Menu
+          mode="inline"
+          selectedKeys={[selectedKey]}
+          onClick={({ key }) => handleMenuClick(key)}
+          items={menuItems.map(item => ({
+            key: item.key,
+            icon: item.icon,
+            label: item.label
+          }))}
+        />
+      </Sider>
+      <Layout>
+        <Content style={{ margin: '16px', padding: '24px', background: '#fff' }}>
+          <Routes>
+            <Route path="/" element={<DeviceManager />} />
+            <Route path="/devices" element={<DeviceManager />} />
+            <Route path="/apps" element={<AppManager />} />
+            <Route path="/commands" element={<CommandExecutor />} />
+            <Route path="/screen" element={<ScreenCapture />} />
+            <Route path="/install-apk" element={<InstallApk />} />
+          </Routes>
+        </Content>
+      </Layout>
+    </Layout>
   )
 }
 

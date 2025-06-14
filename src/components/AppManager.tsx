@@ -36,30 +36,15 @@ import {
 import { useDevice } from '../contexts/DeviceContext'
 import DeviceSelector from './DeviceSelector'
 import { getInstalledApps, getAppCount, getPaginatedApps, type AppType } from '../utils/appUtils'
+import type { AppInfo } from '../types/app'
 // 导入类型声明
 import '../types/electron.d.ts'
+import { useNavigate } from 'react-router-dom'
 
 const { Title, Text } = Typography
 const { Search } = Input
 const { Option } = Select
 const { TabPane } = Tabs
-
-interface AppInfo {
-  packageName: string
-  appName: string
-  version: string
-  versionCode: string
-  targetSdk: string
-  minSdk: string
-  size: string
-  installTime: string
-  updateTime: string
-  isSystemApp: boolean
-  isEnabled: boolean
-  permissions: string[]
-  icon?: string
-  isRunning?: boolean  // 添加运行状态字段
-}
 
 // 添加缓存接口
 interface AppDetailCache {
@@ -78,7 +63,6 @@ const AppManager: React.FC = () => {
   const [detailModalVisible, setDetailModalVisible] = useState(false)
   const [searchText, setSearchText] = useState('')
   const [filterType, setFilterType] = useState<'all' | 'user' | 'system'>('all')
-  const [uploadProgress, setUploadProgress] = useState(0)
   const [installing, setInstalling] = useState(false)
   const [debugMode, setDebugMode] = useState(false)
   const [debugLogs, setDebugLogs] = useState<string[]>([])
@@ -87,6 +71,7 @@ const AppManager: React.FC = () => {
   const [totalApps, setTotalApps] = useState(0)
   const [loadedApps, setLoadedApps] = useState(0)
   const [runningApps, setRunningApps] = useState<Set<string>>(new Set())
+  const [loadingCancelled, setLoadingCancelled] = useState(false)
   
   // 添加缓存状态
   const [appDetailCache, setAppDetailCache] = useState<AppDetailCache>({})
@@ -94,11 +79,16 @@ const AppManager: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
+  // 添加appType变量
+  const appType = filterType === 'all' ? 'all' : filterType === 'system' ? 'system' : 'user'
+
   // 缓存过期时间（5分钟）
   const CACHE_EXPIRY = 5 * 60 * 1000
 
   // 添加缓存刷新定时器引用
   const cacheRefreshTimerRef = useRef<NodeJS.Timeout>()
+
+  const navigate = useNavigate()
 
   // 检查缓存是否有效
   const isCacheValid = (timestamp: number) => {
@@ -112,14 +102,15 @@ const AppManager: React.FC = () => {
     }
   }, [selectedDevice?.status, installedApps.length, loading])
 
+  // 修改过滤逻辑
   useEffect(() => {
     let filtered = installedApps
 
     // 按类型过滤
     if (filterType === 'user') {
-      filtered = filtered.filter(app => !app.isSystemApp)
+      filtered = filtered.filter(app => !app.isSystem)
     } else if (filterType === 'system') {
-      filtered = filtered.filter(app => app.isSystemApp)
+      filtered = filtered.filter(app => app.isSystem)
     }
 
     // 按搜索文本过滤
@@ -335,6 +326,7 @@ const AppManager: React.FC = () => {
     setLoadedApps(0)
     setTotalApps(0)
     setInstalledApps([])
+    setLoadingCancelled(false)
 
     try {
       // 使用工具类获取应用列表
@@ -347,7 +339,7 @@ const AppManager: React.FC = () => {
       // 更新总数和应用列表
       const total = getAppCount(apps, appType)
       setTotalApps(total)
-      setInstalledApps(apps)
+      setInstalledApps(apps as AppInfo[])
       setLoadedApps(apps.length)
     } catch (error) {
       console.error('加载应用列表失败:', error)
@@ -363,56 +355,6 @@ const AppManager: React.FC = () => {
       loadCurrentPageDetails()
     }
   }, [currentPage, pageSize])
-
-  const installApk = async (file: File) => {
-    if (!selectedDevice) {
-      message.error('请先选择设备')
-      return
-    }
-
-    if (selectedDevice.status !== 'device') {
-      message.error('设备未连接或未授权')
-      return
-    }
-
-    setInstalling(true)
-    setUploadProgress(0)
-
-    try {
-      // 将File对象转换为ArrayBuffer，然后转为Uint8Array
-      const arrayBuffer = await file.arrayBuffer()
-      const uint8Array = new Uint8Array(arrayBuffer)
-      
-      setUploadProgress(20)
-      
-      // 使用主进程的API安装APK
-      const installResult = await window.adbToolsAPI.installApk(uint8Array, file.name, selectedDevice.id)
-      
-      setUploadProgress(90)
-      
-      if (installResult.success) {
-        // 检查安装结果
-        const resultText = installResult.data || ''
-        if (resultText.includes('Success') || resultText.includes('success') || resultText.includes('安装完成')) {
-          setUploadProgress(100)
-          message.success(`APK ${file.name} 安装到 ${selectedDevice.model} 成功`)
-          
-          // 立即刷新应用列表，确保新安装的应用显示
-          await refreshApps()
-        } else {
-          throw new Error(resultText || '安装失败')
-        }
-      } else {
-        throw new Error(installResult.error || '安装失败')
-      }
-    } catch (error: any) {
-      console.error('APK安装失败:', error)
-      message.error(`APK安装失败: ${error.message}`)
-    } finally {
-      setInstalling(false)
-      setUploadProgress(0)
-    }
-  }
 
   const uninstallApp = async (packageName: string, appName: string) => {
     if (!selectedDevice) {
@@ -555,19 +497,6 @@ const AppManager: React.FC = () => {
     setDetailModalVisible(true)
   }
 
-  const uploadProps = {
-    accept: '.apk',
-    showUploadList: false,
-    beforeUpload: (file: File) => {
-      if (!file.name.endsWith('.apk')) {
-        message.error('请选择APK文件')
-        return false
-      }
-      installApk(file)
-      return false
-    }
-  }
-
   const columns = [
     {
       title: '应用名称',
@@ -577,7 +506,7 @@ const AppManager: React.FC = () => {
           <Avatar 
             size="large" 
             icon={<AndroidOutlined />}
-            style={{ backgroundColor: record.isSystemApp ? '#1890ff' : '#52c41a' }}
+            style={{ backgroundColor: record.isSystem ? '#1890ff' : '#52c41a' }}
           />
           <div>
             <div style={{ fontWeight: 'bold' }}>{record.appName}</div>
@@ -590,8 +519,8 @@ const AppManager: React.FC = () => {
     },
     {
       title: '版本号',
-      dataIndex: 'version',
-      key: 'version',
+      dataIndex: 'versionName',
+      key: 'versionName',
       render: (version: string) => (
         <Text>{version}</Text>
       )
@@ -600,8 +529,8 @@ const AppManager: React.FC = () => {
       title: '类型',
       key: 'type',
       render: (_: any, record: AppInfo) => (
-        <Tag color={record.isSystemApp ? 'blue' : 'green'}>
-          {record.isSystemApp ? '系统应用' : '用户应用'}
+        <Tag color={record.isSystem ? 'blue' : 'green'}>
+          {record.isSystem ? '系统应用' : '用户应用'}
         </Tag>
       )
     },
@@ -609,16 +538,16 @@ const AppManager: React.FC = () => {
       title: '状态',
       key: 'status',
       render: (_: any, record: AppInfo) => (
-        <Tag color={record.isEnabled ? 'green' : 'red'}>
-          {record.isEnabled ? '已启用' : '已禁用'}
+        <Tag color={record.isRunning ? 'green' : 'red'}>
+          {record.isRunning ? '运行中' : '已停止'}
         </Tag>
       )
     },
     {
-      title: '更新时间',
-      key: 'updateTime',
+      title: '安装时间',
+      key: 'installTime',
       render: (_: any, record: AppInfo) => (
-        <Text>{record.updateTime}</Text>
+        <Text>{record.installTime}</Text>
       )
     },
     {
@@ -646,7 +575,7 @@ const AppManager: React.FC = () => {
           >
             {runningApps.has(record.packageName) ? '停止' : '启动'}
           </Button>
-          {!record.isSystemApp && (
+          {!record.isSystem && (
             <Button 
               type="link" 
               size="small" 
@@ -682,7 +611,7 @@ const AppManager: React.FC = () => {
   }
 
   // 修改表格数据源
-  const tableDataSource = getPaginatedApps(installedApps, currentPage, pageSize)
+  const tableDataSource = getPaginatedApps(installedApps as any, currentPage, pageSize)
 
   return (
     <div>
@@ -694,16 +623,14 @@ const AppManager: React.FC = () => {
         </Row>
         <Row gutter={16} align="middle" style={{ marginTop: 16 }}>
           <Col>
-            <Upload {...uploadProps}>
-              <Button 
-                type="primary" 
-                icon={<UploadOutlined />}
-                loading={installing}
-                disabled={!selectedDevice || selectedDevice.status !== 'device'}
-              >
-                安装APK
-              </Button>
-            </Upload>
+            <Button 
+              type="primary" 
+              icon={<UploadOutlined />}
+              onClick={() => navigate('/install-apk')}
+              disabled={!selectedDevice || selectedDevice.status !== 'device'}
+            >
+              安装APK
+            </Button>
           </Col>
         </Row>
       </div>
@@ -712,18 +639,6 @@ const AppManager: React.FC = () => {
       <Card size="small" style={{ marginBottom: 16 }}>
         <DeviceSelector />
       </Card>
-
-      {installing && (
-        <Card size="small" style={{ marginBottom: 16 }}>
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <Text>正在安装APK到 {selectedDevice?.model}...</Text>
-            <Progress 
-              percent={uploadProgress} 
-              status={uploadProgress === 100 ? 'success' : 'active'}
-            />
-          </Space>
-        </Card>
-      )}
 
       <Card>
         {/* 过滤控制面板 */}
@@ -865,30 +780,23 @@ const AppManager: React.FC = () => {
                   <Text code>{selectedApp.packageName}</Text>
                 </Descriptions.Item>
                 <Descriptions.Item label="版本">
-                  {selectedApp.version}
+                  {selectedApp.versionName}
                 </Descriptions.Item>
                 <Descriptions.Item label="版本代码">
                   {selectedApp.versionCode}
                 </Descriptions.Item>
-                <Descriptions.Item label="目标SDK">
-                  API {selectedApp.targetSdk}
-                </Descriptions.Item>
-                <Descriptions.Item label="最小SDK">
-                  API {selectedApp.minSdk}
-                </Descriptions.Item>
-                <Descriptions.Item label="应用大小">
-                  {selectedApp.size}
-                </Descriptions.Item>
                 <Descriptions.Item label="应用类型">
-                  <Tag color={selectedApp.isSystemApp ? 'blue' : 'green'}>
-                    {selectedApp.isSystemApp ? '系统应用' : '用户应用'}
+                  <Tag color={selectedApp.isSystem ? 'blue' : 'green'}>
+                    {selectedApp.isSystem ? '系统应用' : '用户应用'}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="运行状态">
+                  <Tag color={selectedApp.isRunning ? 'green' : 'red'}>
+                    {selectedApp.isRunning ? '运行中' : '已停止'}
                   </Tag>
                 </Descriptions.Item>
                 <Descriptions.Item label="安装时间">
                   {selectedApp.installTime}
-                </Descriptions.Item>
-                <Descriptions.Item label="更新时间">
-                  {selectedApp.updateTime}
                 </Descriptions.Item>
               </Descriptions>
             </TabPane>

@@ -72,7 +72,7 @@ const adbToolsAPI = {
   getQueueStatus: () => ipcRenderer.invoke('get-queue-status'),
   
   // 安装APK
-  installApk: (fileData: Uint8Array | Buffer, fileName: string, deviceId: string) => ipcRenderer.invoke('install-apk', fileData, fileName, deviceId),
+  installApk: (fileData: Uint8Array | Buffer, fileName: string, deviceId: string, installOptions?: string) => ipcRenderer.invoke('install-apk', fileData, fileName, deviceId, installOptions),
   
   // 监听主进程消息
   onMainProcessMessage: (callback: (message: string) => void) => {

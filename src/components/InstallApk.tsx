@@ -22,6 +22,7 @@ import {
   ApiOutlined
 } from '@ant-design/icons'
 import { useDevice } from '../contexts/DeviceContext'
+import { usePage } from '../contexts/PageContext'
 import DeviceSelector from './DeviceSelector'
 
 const { Title, Text } = Typography
@@ -60,6 +61,7 @@ const DEFAULT_INSTALL_OPTIONS: InstallOptions = {
 
 const InstallApk: React.FC = () => {
   const { selectedDevice } = useDevice()
+  const { navigateToPage } = usePage()
   const [uploadProgress, setUploadProgress] = useState(0)
   const [installing, setInstalling] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
@@ -202,9 +204,8 @@ const InstallApk: React.FC = () => {
         <Row gutter={16} align="middle">
           <Col>
             <Button 
-              type="link" 
-              icon={<ArrowLeftOutlined />}
-              onClick={() => window.history.back()}
+              icon={<ArrowLeftOutlined />} 
+              onClick={() => navigateToPage('apps', [])}
             >
               返回
             </Button>

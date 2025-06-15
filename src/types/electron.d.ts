@@ -55,15 +55,25 @@ interface AdbToolsAPI {
   
   // 获取队列状态
   getQueueStatus: () => Promise<{
-    fast: { name: string; queueLength: number; concurrency: number; maxConcurrency: number }
-    normal: { name: string; queueLength: number; concurrency: number; maxConcurrency: number }
-    bulk: { name: string; queueLength: number; concurrency: number; maxConcurrency: number }
+    isRunning: boolean
+    currentTask: string | null
+    queueLength: number
   }>
   
   // 安装APK
   installApk: (fileData: Uint8Array | Buffer, fileName: string, deviceId: string, installOptions?: string) => Promise<{
     success: boolean
     data?: string
+    error?: string
+  }>
+  
+  // 获取已安装应用
+  getInstalledApps: (deviceId: string) => Promise<{
+    success: boolean
+    data?: Array<{
+      path: string
+      packageName: string
+    }>
     error?: string
   }>
   

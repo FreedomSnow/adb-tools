@@ -595,6 +595,46 @@ ipcMain.handle('install-apk', async (_, fileData: Buffer | Uint8Array, fileName:
   }
 })
 
+// 获取已安装的应用列表
+ipcMain.handle('get-installed-apps', async (_, deviceId: string) => {
+  try {
+    const adbPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+      : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+    
+    const command = `"${adbPath}" -s ${deviceId} shell pm list packages -f`
+    const { stdout } = await execAsync(command)
+    
+    // 解析输出
+    const apps = stdout
+      .split('\n')
+      .filter(line => line.trim())
+      .map(line => {
+        const match = line.match(/package:(.*?)=(.*)/)
+        if (match) {
+          const [, path, packageName] = match
+          return {
+            path,
+            packageName
+          }
+        }
+        return null
+      })
+      .filter(app => app !== null)
+    
+    return {
+      success: true,
+      data: apps
+    }
+  } catch (error: any) {
+    console.error('获取应用列表失败:', error)
+    return {
+      success: false,
+      error: error.message || '获取应用列表失败'
+    }
+  }
+})
+
 // 获取用户主目录
 ipcMain.handle('get-user-home-dir', () => {
   return app.getPath('home')

@@ -101,7 +101,13 @@ const adbToolsAPI = {
   // 移除监听器
   removeAllListeners: (channel: string) => {
     ipcRenderer.removeAllListeners(channel)
-  }
+  },
+
+  // 获取预设命令
+  getPresetCommands: () => ipcRenderer.invoke('get-preset-commands'),
+  
+  // 保存预设命令
+  savePresetCommands: (commands: any) => ipcRenderer.invoke('save-preset-commands', commands),
 }
 
 // 将API暴露给渲染进程
@@ -132,7 +138,9 @@ contextBridge.exposeInMainWorld('adbToolsAPI', {
   },
   removeAllListeners: (channel: string) => {
     ipcRenderer.removeAllListeners(channel)
-  }
+  },
+  getPresetCommands: () => ipcRenderer.invoke('get-preset-commands'),
+  savePresetCommands: (commands: any) => ipcRenderer.invoke('save-preset-commands', commands),
 })
 
 /**

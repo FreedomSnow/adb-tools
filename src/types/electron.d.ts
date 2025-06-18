@@ -1,5 +1,12 @@
 // Electron主进程API类型定义
 
+interface PresetCommand {
+  id: string
+  label: string
+  value: string
+  isCustom?: boolean
+}
+
 interface AdbToolsAPI {
   // 获取ADB路径
   getAdbPath: () => Promise<string>
@@ -82,6 +89,12 @@ interface AdbToolsAPI {
   
   // 移除监听器
   removeAllListeners: (channel: string) => void
+  
+  // 获取预设命令
+  getPresetCommands: () => Promise<PresetCommand[]>
+  
+  // 保存预设命令
+  savePresetCommands: (commands: PresetCommand[]) => Promise<boolean>
 }
 
 declare global {

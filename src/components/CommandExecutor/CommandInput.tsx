@@ -6,7 +6,7 @@ import {
   Input, 
   Typography,
   message,
-  Dropdown
+  theme
 } from 'antd'
 import type { InputRef } from 'antd'
 import { 
@@ -14,9 +14,10 @@ import {
   ClearOutlined,
   CopyOutlined,
   UpOutlined,
-  DownOutlined
+  DownOutlined,
+  ScissorOutlined,
+  FileAddOutlined
 } from '@ant-design/icons'
-import type { MenuProps } from 'antd'
 
 const { Text } = Typography
 
@@ -50,6 +51,7 @@ const CommandInput: React.FC<CommandInputProps> = ({
 }) => {
   const inputRef = useRef<HTMLDivElement>(null)
   const commandInputRef = useRef<InputRef>(null)
+  const { token } = theme.useToken()
 
   // 复制命令到剪贴板
   const copyCommand = async () => {
@@ -121,39 +123,102 @@ const CommandInput: React.FC<CommandInputProps> = ({
     }
   }
 
-  // 右键菜单项
-  const menuItems: MenuProps['items'] = [
-    {
-      key: 'copy',
-      label: '复制',
-      icon: <CopyOutlined />,
-      onClick: copyCommand
-    },
-    {
-      key: 'paste',
-      label: '粘贴',
-      onClick: async () => {
-        try {
-          const text = await navigator.clipboard.readText()
-          setCommand(text)
-        } catch (error) {
-          message.error('粘贴失败')
+  // 处理右键菜单
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    
+    const menuItems = [
+      {
+        key: 'copy',
+        icon: <CopyOutlined />,
+        label: '复制',
+        onClick: copyCommand
+      },
+      {
+        key: 'paste',
+        icon: <FileAddOutlined />,
+        label: '粘贴',
+        onClick: async () => {
+          try {
+            const text = await navigator.clipboard.readText()
+            setCommand(text)
+          } catch (error) {
+            message.error('粘贴失败')
+          }
+        }
+      },
+      {
+        key: 'cut',
+        icon: <ScissorOutlined />,
+        label: '剪切',
+        onClick: () => {
+          const inputElement = commandInputRef.current?.input
+          if (inputElement) {
+            inputElement.focus()
+            document.execCommand('cut')
+          }
         }
       }
-    },
-    {
-      type: 'divider'
-    },
-    {
-      key: 'selectAll',
-      label: '全选',
-      onClick: () => {
-        if (commandInputRef.current) {
-          commandInputRef.current.select()
-        }
+    ]
+
+    // 创建自定义右键菜单
+    const menu = document.createElement('div')
+    menu.style.cssText = `
+      position: fixed;
+      top: ${e.clientY}px;
+      left: ${e.clientX}px;
+      background: ${token.colorBgElevated};
+      border: 1px solid ${token.colorBorder};
+      border-radius: ${token.borderRadiusLG}px;
+      box-shadow: ${token.boxShadowSecondary};
+      padding: 4px;
+      z-index: 1000;
+      min-width: 120px;
+    `
+
+    menuItems.forEach(item => {
+      const button = document.createElement('button')
+      button.style.cssText = `
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: 8px 12px;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 14px;
+        color: ${token.colorText};
+        text-align: left;
+        border-radius: ${token.borderRadiusSM}px;
+      `
+      button.innerHTML = `
+        <span style="margin-right: 8px;">${item.icon ? item.icon.props.children.type.render() : ''}</span>
+        ${item.label}
+      `
+      button.onmouseenter = () => {
+        button.style.background = token.colorBgTextHover
       }
+      button.onmouseleave = () => {
+        button.style.background = 'transparent'
+      }
+      button.onclick = () => {
+        item.onClick()
+        document.body.removeChild(menu)
+      }
+      menu.appendChild(button)
+    })
+
+    // 点击其他地方关闭菜单
+    const closeMenu = () => {
+      if (document.body.contains(menu)) {
+        document.body.removeChild(menu)
+      }
+      document.removeEventListener('click', closeMenu)
     }
-  ]
+    
+    document.addEventListener('click', closeMenu)
+    document.body.appendChild(menu)
+  }
 
   // 添加点击页面其他区域时隐藏历史记录的功能
   React.useEffect(() => {
@@ -217,33 +282,32 @@ const CommandInput: React.FC<CommandInputProps> = ({
           输入ADB命令 (自动使用选定设备)
         </Text>
         <div ref={inputRef} style={{ position: 'relative' }}>
-          <Dropdown menu={{ items: menuItems }} trigger={['contextMenu']}>
-            <Input
-              ref={commandInputRef}
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              placeholder="例如: adb shell getprop ro.product.model"
-              onKeyDown={handleKeyDown}
-              size="large"
-              disabled={disabled}
-              onClick={() => setShowHistory(false)}
-              suffix={
-                <Button
-                  type="text"
-                  icon={showHistory ? <DownOutlined /> : <UpOutlined />}
-                  style={{ 
-                    padding: '0 4px',
-                    marginRight: -8,
-                    color: 'rgba(0, 0, 0, 0.45)'
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setShowHistory(!showHistory)
-                  }}
-                />
-              }
-            />
-          </Dropdown>
+          <Input
+            ref={commandInputRef}
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            placeholder="例如: adb shell getprop ro.product.model"
+            onKeyDown={handleKeyDown}
+            onContextMenu={handleContextMenu}
+            size="large"
+            disabled={disabled}
+            onClick={() => setShowHistory(false)}
+            suffix={
+              <Button
+                type="text"
+                icon={showHistory ? <DownOutlined /> : <UpOutlined />}
+                style={{ 
+                  padding: '0 4px',
+                  marginRight: -8,
+                  color: 'rgba(0, 0, 0, 0.45)'
+                }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setShowHistory(!showHistory)
+                }}
+              />
+            }
+          />
           {showHistory && commandHistory.length > 0 && (
             <div style={{
               position: 'absolute',

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { 
   Card, 
   Button, 
@@ -6,14 +6,19 @@ import {
   Modal,
   Form,
   Input,
-  message
+  message,
+  theme
 } from 'antd'
+import type { InputRef } from 'antd'
 import { 
   PlusOutlined,
   MenuOutlined,
   EditOutlined,
   DeleteOutlined,
-  CheckOutlined
+  CheckOutlined,
+  CopyOutlined,
+  ScissorOutlined,
+  FileAddOutlined
 } from '@ant-design/icons'
 import {
   DndContext,
@@ -32,6 +37,7 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import ReactDOMServer from 'react-dom/server'
 
 interface PresetCommand {
   id: string
@@ -137,6 +143,9 @@ const PresetCommands: React.FC<PresetCommandsProps> = ({
   const [editingCommand, setEditingCommand] = useState<PresetCommand | null>(null)
   const [isEditMode, setIsEditMode] = useState(false)
   const [form] = Form.useForm()
+  const labelInputRef = useRef<InputRef>(null)
+  const valueInputRef = useRef<InputRef>(null)
+  const { token } = theme.useToken()
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -144,6 +153,59 @@ const PresetCommands: React.FC<PresetCommandsProps> = ({
       coordinateGetter: sortableKeyboardCoordinates,
     })
   )
+
+  // 复制文本到剪贴板
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      message.success('已复制到剪贴板')
+    } catch (err) {
+      message.error('复制失败')
+    }
+  }
+
+  // 从剪贴板粘贴文本
+  const pasteFromClipboard = async (setValue: (value: string) => void) => {
+    try {
+      const text = await navigator.clipboard.readText()
+      setValue(text)
+    } catch (err) {
+      message.error('粘贴失败')
+    }
+  }
+
+  // 处理键盘快捷键
+  const handleKeyDown = (e: React.KeyboardEvent, fieldName: 'label' | 'value') => {
+    const isCtrlOrCmd = e.ctrlKey || e.metaKey
+    
+    if (isCtrlOrCmd) {
+      switch (e.key) {
+        case 'c':
+          e.preventDefault()
+          const input = fieldName === 'label' ? labelInputRef.current : valueInputRef.current
+          if (input) {
+            input.focus()
+            document.execCommand('copy')
+          }
+          break
+        case 'v':
+          // 不做任何处理，交给原生粘贴
+          break
+        case 'x':
+          e.preventDefault()
+          const cutInput = fieldName === 'label' ? labelInputRef.current : valueInputRef.current
+          if (cutInput) {
+            cutInput.focus()
+            document.execCommand('cut')
+          }
+          break
+        case 'a':
+          e.preventDefault()
+          // 全选功能由浏览器原生支持
+          break
+      }
+    }
+  }
 
   // 添加或编辑命令
   const handleAddOrEditCommand = async (values: { label: string; value: string }) => {
@@ -199,6 +261,108 @@ const PresetCommands: React.FC<PresetCommandsProps> = ({
       const newCommands = arrayMove(presetCommands, oldIndex, newIndex)
       onCommandsChange(newCommands)
     }
+  }
+
+  // 处理右键菜单
+  const handleContextMenu = (e: React.MouseEvent, fieldName: 'label' | 'value') => {
+    e.preventDefault()
+    
+    const menuItems = [
+      {
+        key: 'copy',
+        icon: <CopyOutlined />,
+        label: '复制',
+        onClick: () => {
+          const input = fieldName === 'label' ? labelInputRef.current : valueInputRef.current
+          if (input) {
+            input.focus()
+            document.execCommand('copy')
+          }
+        }
+      },
+      {
+        key: 'paste',
+        icon: <FileAddOutlined />,
+        label: '粘贴',
+        onClick: () => {
+          const input = fieldName === 'label' ? labelInputRef.current : valueInputRef.current
+          if (input) {
+            input.focus()
+            document.execCommand('paste')
+          }
+        }
+      },
+      {
+        key: 'cut',
+        icon: <ScissorOutlined />,
+        label: '剪切',
+        onClick: () => {
+          const input = fieldName === 'label' ? labelInputRef.current : valueInputRef.current
+          if (input) {
+            input.focus()
+            document.execCommand('cut')
+          }
+        }
+      }
+    ]
+
+    // 创建自定义右键菜单
+    const menu = document.createElement('div')
+    menu.style.cssText = `
+      position: fixed;
+      top: ${e.clientY}px;
+      left: ${e.clientX}px;
+      background: ${token.colorBgElevated};
+      border: 1px solid ${token.colorBorder};
+      border-radius: ${token.borderRadiusLG}px;
+      box-shadow: ${token.boxShadowSecondary};
+      padding: 4px;
+      z-index: 1000;
+      min-width: 120px;
+    `
+
+    menuItems.forEach(item => {
+      const button = document.createElement('button')
+      button.style.cssText = `
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: 8px 12px;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 14px;
+        color: ${token.colorText};
+        text-align: left;
+        border-radius: ${token.borderRadiusSM}px;
+      `
+      button.innerHTML = `
+        <span style="margin-right: 8px;">${item.icon ? ReactDOMServer.renderToString(item.icon) : ''}</span>
+        ${item.label}
+      `
+      button.onmouseenter = () => {
+        button.style.background = token.colorBgTextHover
+      }
+      button.onmouseleave = () => {
+        button.style.background = 'transparent'
+      }
+      button.onclick = () => {
+        item.onClick()
+        document.body.removeChild(menu)
+      }
+      menu.appendChild(button)
+    })
+
+    // 点击其他地方关闭菜单
+    const closeMenu = () => {
+      if (document.body.contains(menu)) {
+        document.body.removeChild(menu)
+      }
+      document.removeEventListener('click', closeMenu)
+    }
+    
+    document.addEventListener('click', closeMenu)
+    document.body.appendChild(menu)
   }
 
   return (
@@ -280,14 +444,26 @@ const PresetCommands: React.FC<PresetCommandsProps> = ({
             label="命令名称"
             rules={[{ required: true, message: '请输入命令名称' }]}
           >
-            <Input placeholder="例如：查看设备型号" />
+            <Input 
+              ref={labelInputRef}
+              placeholder="例如：查看设备型号"
+              onKeyDown={(e) => handleKeyDown(e, 'label')}
+              onContextMenu={(e) => handleContextMenu(e, 'label')}
+            />
           </Form.Item>
           <Form.Item
             name="value"
             label="命令内容"
             rules={[{ required: true, message: '请输入命令内容' }]}
           >
-            <Input placeholder="例如：adb shell getprop ro.product.model" />
+            <Input.TextArea 
+              ref={valueInputRef}
+              placeholder="例如：adb shell getprop ro.product.model"
+              rows={4}
+              style={{ fontFamily: 'monospace' }}
+              onKeyDown={(e) => handleKeyDown(e, 'value')}
+              onContextMenu={(e) => handleContextMenu(e, 'value')}
+            />
           </Form.Item>
         </Form>
       </Modal>

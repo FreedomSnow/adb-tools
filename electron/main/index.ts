@@ -5,6 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { spawn, exec } from 'node:child_process'
 import { promisify } from 'node:util'
+import fs from 'fs/promises'
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -655,4 +656,56 @@ ipcMain.handle('show-save-dialog', (_, options: {
   }>
 }) => {
   return dialog.showSaveDialog(options)
+})
+
+// 预设命令文件路径
+const getPresetCommandsPath = () => {
+  const userDataPath = app.getPath('userData')
+  return path.join(userDataPath, 'preset-commands.json')
+}
+
+// 默认预设命令
+const defaultPresetCommands = [
+  { id: '1', label: '获取设备信息', value: 'adb shell getprop' },
+  { id: '2', label: '查看已安装应用', value: 'adb shell pm list packages' },
+  { id: '3', label: '查看设备型号', value: 'adb shell getprop ro.product.model' },
+  { id: '4', label: '查看Android版本', value: 'adb shell getprop ro.build.version.release' },
+  { id: '5', label: '查看屏幕分辨率', value: 'adb shell wm size' },
+  { id: '6', label: '查看屏幕密度', value: 'adb shell wm density' },
+  { id: '7', label: '查看电池信息', value: 'adb shell dumpsys battery' },
+  { id: '8', label: '查看内存信息', value: 'adb shell cat /proc/meminfo' },
+  { id: '9', label: '查看CPU信息', value: 'adb shell cat /proc/cpuinfo' },
+  { id: '10', label: '重启设备', value: 'adb reboot' },
+  { id: '11', label: '进入恢复模式', value: 'adb reboot recovery' },
+  { id: '12', label: '进入下载模式', value: 'adb reboot download' }
+]
+
+// 读取预设命令
+ipcMain.handle('get-preset-commands', async () => {
+  try {
+    const filePath = getPresetCommandsPath()
+    try {
+      const data = await fs.readFile(filePath, 'utf-8')
+      return JSON.parse(data)
+    } catch (error) {
+      // 如果文件不存在或读取失败，写入默认命令并返回
+      await fs.writeFile(filePath, JSON.stringify(defaultPresetCommands, null, 2))
+      return defaultPresetCommands
+    }
+  } catch (error) {
+    console.error('读取预设命令失败:', error)
+    return defaultPresetCommands
+  }
+})
+
+// 保存预设命令
+ipcMain.handle('save-preset-commands', async (_, commands) => {
+  try {
+    const filePath = getPresetCommandsPath()
+    await fs.writeFile(filePath, JSON.stringify(commands, null, 2))
+    return true
+  } catch (error) {
+    console.error('保存预设命令失败:', error)
+    return false
+  }
 }) 

@@ -70,6 +70,7 @@ const InstallApk: React.FC = () => {
     const savedOptions = localStorage.getItem(INSTALL_OPTIONS_STORAGE_KEY)
     return savedOptions ? JSON.parse(savedOptions) : DEFAULT_INSTALL_OPTIONS
   })
+  const [commandOutput, setCommandOutput] = useState<string[]>([])
 
   // 当选项改变时保存到localStorage
   useEffect(() => {
@@ -89,12 +90,14 @@ const InstallApk: React.FC = () => {
 
     setInstalling(true)
     setUploadProgress(0)
+    setCommandOutput(prev => [...prev, `开始安装 ${file.name}...`])
 
     try {
       const arrayBuffer = await file.arrayBuffer()
       const uint8Array = new Uint8Array(arrayBuffer)
       
       setUploadProgress(20)
+      setCommandOutput(prev => [...prev, `正在准备安装文件...`])
       
       // 构建安装参数
       const options = {
@@ -106,6 +109,9 @@ const InstallApk: React.FC = () => {
         allowTestApk: installOptions.allowTestApk ? '-t' : '',
         installer: installOptions.useInstallerPackage && installOptions.installerPackage ? `-i ${installOptions.installerPackage}` : ''
       }
+
+      const optionsString = Object.values(options).filter(Boolean).join(' ')
+      setCommandOutput(prev => [...prev, `执行命令: adb install ${optionsString} ${file.name}`])
       
       const installResult = await window.adbToolsAPI.installApk(
         uint8Array, 
@@ -118,8 +124,11 @@ const InstallApk: React.FC = () => {
       
       if (installResult.success) {
         const resultText = installResult.data || ''
+        setCommandOutput(prev => [...prev, resultText])
+        
         if (resultText.includes('Success') || resultText.includes('success') || resultText.includes('安装完成')) {
           setUploadProgress(100)
+          setCommandOutput(prev => [...prev, `APK ${file.name} 安装成功`])
           message.success(`APK ${file.name} 安装到 ${selectedDevice.model} 成功`)
         } else {
           throw new Error(resultText || '安装失败')
@@ -129,6 +138,7 @@ const InstallApk: React.FC = () => {
       }
     } catch (error: any) {
       console.error('APK安装失败:', error)
+      setCommandOutput(prev => [...prev, `安装失败: ${error.message}`])
       message.error(`APK安装失败: ${error.message}`)
     } finally {
       setInstalling(false)
@@ -238,6 +248,12 @@ const InstallApk: React.FC = () => {
               -d: 允许调试
             </Checkbox>
             <Checkbox 
+              checked={installOptions.allowTestApk}
+              onChange={() => handleOptionChange('allowTestApk')}
+            >
+              -t: 允许安装测试APK
+            </Checkbox>
+            <Checkbox 
               checked={installOptions.sdcard}
               onChange={() => handleOptionChange('sdcard')}
             >
@@ -254,12 +270,6 @@ const InstallApk: React.FC = () => {
               onChange={() => handleOptionChange('forwardLock')}
             >
               -l: 安装到受保护存储
-            </Checkbox>
-            <Checkbox 
-              checked={installOptions.allowTestApk}
-              onChange={() => handleOptionChange('allowTestApk')}
-            >
-              -t: 允许安装测试APK
             </Checkbox>
             <div style={{ marginTop: 8 }}>
               <Checkbox 
@@ -351,6 +361,35 @@ const InstallApk: React.FC = () => {
                 percent={uploadProgress} 
                 status={uploadProgress === 100 ? 'success' : 'active'}
               />
+            </div>
+          )}
+
+          {commandOutput.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <Card
+                size="small"
+                title="安装日志"
+                bodyStyle={{ 
+                  maxHeight: '200px', 
+                  overflowY: 'auto',
+                  backgroundColor: '#1e1e1e',
+                  padding: '12px',
+                  userSelect: 'text',
+                  cursor: 'text'
+                }}
+              >
+                {commandOutput.map((line, index) => (
+                  <div key={index} style={{ 
+                    fontFamily: 'monospace',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-all',
+                    marginBottom: '4px',
+                    color: line.includes('失败') ? '#ff6b6b' : line.includes('成功') ? '#52c41a' : '#ffffff'
+                  }}>
+                    {line}
+                  </div>
+                ))}
+              </Card>
             </div>
           )}
         </Space>

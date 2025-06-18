@@ -90,6 +90,9 @@ const adbToolsAPI = {
   // 安装APK
   installApk: (fileData: Uint8Array | Buffer, fileName: string, deviceId: string, installOptions?: string) => ipcRenderer.invoke('install-apk', fileData, fileName, deviceId, installOptions),
   
+  // 获取已安装的应用列表
+  getInstalledApps: (deviceId: string) => ipcRenderer.invoke('get-installed-apps', deviceId),
+  
   // 监听主进程消息
   onMainProcessMessage: (callback: (message: string) => void) => {
     ipcRenderer.on('main-process-message', (_, message) => callback(message))
@@ -123,6 +126,7 @@ contextBridge.exposeInMainWorld('adbToolsAPI', {
   getQueueStatus: () => ipcRenderer.invoke('get-queue-status'),
   installApk: (fileData: Uint8Array | Buffer, fileName: string, deviceId: string) => 
     ipcRenderer.invoke('install-apk', fileData, fileName, deviceId),
+  getInstalledApps: (deviceId: string) => ipcRenderer.invoke('get-installed-apps', deviceId),
   onMainProcessMessage: (callback: (message: string) => void) => {
     ipcRenderer.on('main-process-message', (_, message) => callback(message))
   },

@@ -84,6 +84,13 @@ interface AdbToolsAPI {
     error?: string
   }>
   
+  // 卸载应用
+  uninstallApp: (deviceId: string, packageName: string) => Promise<{
+    success: boolean
+    data?: string
+    error?: string
+  }>
+  
   // 监听主进程消息
   onMainProcessMessage: (callback: (message: string) => void) => void
   

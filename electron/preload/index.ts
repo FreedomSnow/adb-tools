@@ -93,6 +93,9 @@ const adbToolsAPI = {
   // 获取已安装的应用列表
   getInstalledApps: (deviceId: string) => ipcRenderer.invoke('get-installed-apps', deviceId),
   
+  // 卸载应用
+  uninstallApp: (deviceId: string, packageName: string) => ipcRenderer.invoke('uninstall-app', deviceId, packageName),
+  
   // 监听主进程消息
   onMainProcessMessage: (callback: (message: string) => void) => {
     ipcRenderer.on('main-process-message', (_, message) => callback(message))
@@ -133,6 +136,7 @@ contextBridge.exposeInMainWorld('adbToolsAPI', {
   installApk: (fileData: Uint8Array | Buffer, fileName: string, deviceId: string) => 
     ipcRenderer.invoke('install-apk', fileData, fileName, deviceId),
   getInstalledApps: (deviceId: string) => ipcRenderer.invoke('get-installed-apps', deviceId),
+  uninstallApp: (deviceId: string, packageName: string) => ipcRenderer.invoke('uninstall-app', deviceId, packageName),
   onMainProcessMessage: (callback: (message: string) => void) => {
     ipcRenderer.on('main-process-message', (_, message) => callback(message))
   },

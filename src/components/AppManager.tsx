@@ -9,6 +9,7 @@ import { useDevice } from '../contexts/DeviceContext'
 import { usePage } from '../contexts/PageContext'
 import { AppInfo } from '@/types/app'
 import InstallApk from './InstallApk'
+import UninstallConfirmModal from './UninstallConfirmModal'
 
 const { Title, Text } = Typography
 const { Option } = Select
@@ -100,6 +101,12 @@ const AppManager: React.FC = () => {
     pageSize: 10,
     total: 0
   })
+  
+  // 卸载相关状态
+  const [uninstallModalVisible, setUninstallModalVisible] = useState(false)
+  const [selectedPackageName, setSelectedPackageName] = useState<string | null>(null)
+  const [uninstallLoading, setUninstallLoading] = useState(false)
+
   const [columns, setColumns] = useState([
     {
       title: '应用名称',
@@ -152,6 +159,7 @@ const AppManager: React.FC = () => {
               danger
               icon={<DeleteOutlined />}
               disabled={!selectedDevice || selectedDevice.status !== 'device'}
+              onClick={() => handleUninstallClick(record)}
             >
               卸载
             </Button>
@@ -253,6 +261,50 @@ const AppManager: React.FC = () => {
   // 检查是否在安装 APK 页面
   const isInstallApkPage = location.pathname.includes('/apps/install-apk')
 
+  // 处理卸载按钮点击
+  const handleUninstallClick = (app: AppInfo) => {
+    setSelectedPackageName(app.packageName)
+    setUninstallModalVisible(true)
+  }
+
+  // 处理卸载确认
+  const handleUninstallConfirm = async () => {
+    if (!selectedPackageName || !selectedDevice) {
+      message.error('缺少必要信息')
+      return
+    }
+
+    setUninstallLoading(true)
+    try {
+      const result = await window.adbToolsAPI.uninstallApp(selectedDevice.id, selectedPackageName)
+      if (result.success) {
+        message.success(`应用 ${selectedPackageName} 卸载成功`)
+        // 从列表中移除已卸载的应用
+        setApps(prev => prev.filter(app => app.packageName !== selectedPackageName))
+        setSearchResults(prev => prev.filter(app => app.packageName !== selectedPackageName))
+        setPagination(prev => ({
+          ...prev,
+          total: prev.total - 1
+        }))
+        setUninstallModalVisible(false)
+        setSelectedPackageName(null)
+      } else {
+        message.error(result.error || '卸载失败')
+      }
+    } catch (error) {
+      console.error('卸载应用失败:', error)
+      message.error('卸载应用失败')
+    } finally {
+      setUninstallLoading(false)
+    }
+  }
+
+  // 处理卸载取消
+  const handleUninstallCancel = () => {
+    setUninstallModalVisible(false)
+    setSelectedPackageName(null)
+  }
+
   return (
     <div>
       <style>{styles}</style>
@@ -342,6 +394,16 @@ const AppManager: React.FC = () => {
               </Space>
             </div>
           )}
+
+          {/* 卸载确认框 */}
+          <UninstallConfirmModal
+            visible={uninstallModalVisible}
+            packageName={selectedPackageName}
+            deviceId={selectedDevice?.id || null}
+            onCancel={handleUninstallCancel}
+            onConfirm={handleUninstallConfirm}
+            loading={uninstallLoading}
+          />
         </>
       ) : (
         <InstallApk />

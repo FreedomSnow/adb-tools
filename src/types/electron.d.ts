@@ -80,6 +80,8 @@ interface AdbToolsAPI {
     data?: Array<{
       path: string
       packageName: string
+      appName: string
+      versionName: string
     }>
     error?: string
   }>

@@ -25,9 +25,6 @@ const UninstallConfirmModal: React.FC<UninstallConfirmModalProps> = ({
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [appLoading, setAppLoading] = useState(false)
 
-  console.log('packageName', packageName)
-  console.log('deviceId', deviceId)
-
   // 根据packageName查询app详情
   const fetchAppInfo = async () => {
     if (!packageName || !deviceId) return

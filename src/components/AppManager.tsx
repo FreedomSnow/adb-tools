@@ -11,6 +11,7 @@ import { AppInfo } from '@/types/app'
 import InstallApk from './InstallApk'
 import UninstallConfirmModal from './UninstallConfirmModal'
 import useInstalledApps from './useInstalledApps'
+import AppDetailModal from './AppDetailModal'
 
 const { Title, Text } = Typography
 const { Option } = Select
@@ -107,6 +108,10 @@ const AppManager: React.FC = () => {
   const [uninstallModalVisible, setUninstallModalVisible] = useState(false)
   const [selectedPackageName, setSelectedPackageName] = useState<string | null>(null)
   const [uninstallLoading, setUninstallLoading] = useState(false)
+  // 详情相关状态
+  const [detailModalVisible, setDetailModalVisible] = useState(false)
+  const [detailDeviceId, setDetailDeviceId] = useState<string | null>(null)
+  const [detailPackageName, setDetailPackageName] = useState<string | null>(null)
 
   // 使用 useEffect 监听 total 变化，并同步到 pagination
   useEffect(() => {
@@ -120,6 +125,13 @@ const AppManager: React.FC = () => {
   const handleUninstallClick = (app: AppInfo) => {
     setSelectedPackageName(app.packageName)
     setUninstallModalVisible(true)
+  }
+
+  // 处理详情按钮点击
+  const handleDetailClick = (app: AppInfo) => {
+    setDetailDeviceId(selectedDevice?.id || null)
+    setDetailPackageName(app.packageName)
+    setDetailModalVisible(true)
   }
 
   // 使用 useMemo 定义 columns，避免重复创建
@@ -163,23 +175,11 @@ const AppManager: React.FC = () => {
         <Space>
           <Button 
             type="primary" 
-            icon={<InfoCircleOutlined />}
+            icon={<InfoCircleOutlined />} 
+            onClick={() => handleDetailClick(record)}
           >
             详情
           </Button>
-          
-          {!record.isSystem && (
-            <Button 
-              style={{ marginLeft: 20 }}
-              type="primary" 
-              danger
-              icon={<DeleteOutlined />}
-              disabled={!selectedDevice || selectedDevice.status !== 'device'}
-              onClick={() => handleUninstallClick(record)}
-            >
-              卸载
-            </Button>
-          )}
         </Space>
       )
     }
@@ -376,6 +376,16 @@ const AppManager: React.FC = () => {
             onCancel={handleUninstallCancel}
             onConfirm={handleUninstallConfirm}
             loading={uninstallLoading}
+          />
+          {/* 应用详情弹窗 */}
+          <AppDetailModal
+            visible={detailModalVisible}
+            deviceId={detailDeviceId}
+            packageName={detailPackageName}
+            onCancel={() => setDetailModalVisible(false)}
+            onUninstalled={() => {
+              if (selectedDevice) fetchApps(selectedDevice.id, searchType, searchContent)
+            }}
           />
         </>
       ) : (

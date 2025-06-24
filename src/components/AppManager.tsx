@@ -288,8 +288,6 @@ const AppManager: React.FC = () => {
               <Col>
                 <Title level={4} style={{ margin: 0 }}>应用管理</Title>
               </Col>
-            </Row>
-            <Row gutter={16} align="middle" style={{ marginTop: 16 }}>
               <Col>
                 <Button 
                   type="primary" 

@@ -390,7 +390,11 @@ const PresetCommands: React.FC<PresetCommandsProps> = ({
         </div>
       }
       size="small" 
-      style={{ marginBottom: 16 }}
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+      styles={{
+        header: { flexShrink: 0 },
+        body: { flexGrow: 1, overflowY: 'auto', padding: '8px 4px' }
+      }}
     >
       <DndContext
         sensors={sensors}
@@ -398,32 +402,27 @@ const PresetCommands: React.FC<PresetCommandsProps> = ({
         onDragEnd={handleDragEnd}
       >
         <SortableContext
-          items={presetCommands.map(cmd => cmd.id)}
+          items={presetCommands}
           strategy={verticalListSortingStrategy}
         >
-          <Space direction="vertical" style={{ width: '100%' }}>
-            {presetCommands.map((cmd) => (
+          <div style={{ padding: '0px' }}>
+            {presetCommands.map(command => (
               <SortableCommandItem
-                key={cmd.id}
-                command={cmd}
-                onEdit={(cmd) => {
-                  setEditingCommand(cmd)
-                  form.setFieldsValue(cmd)
-                  setIsAddModalVisible(true)
-                }}
-                onDelete={handleDeleteCommand}
+                key={command.id}
+                command={command}
+                onEdit={isEditMode ? (cmd) => { setEditingCommand(cmd); setIsAddModalVisible(true); } : undefined}
+                onDelete={isEditMode ? handleDeleteCommand : undefined}
                 onSelect={onCommandSelect}
                 disabled={disabled}
                 isEditMode={isEditMode}
               />
             ))}
-          </Space>
+          </div>
         </SortableContext>
       </DndContext>
-
-      {/* 添加/编辑命令的模态框 */}
+      
       <Modal
-        title={editingCommand ? '编辑命令' : '添加命令'}
+        title={editingCommand ? '编辑命令' : '添加新命令'}
         open={isAddModalVisible}
         onOk={() => form.submit()}
         onCancel={() => {

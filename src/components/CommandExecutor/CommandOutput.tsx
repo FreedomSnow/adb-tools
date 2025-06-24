@@ -114,21 +114,31 @@ const CommandOutput: React.FC<CommandOutputProps> = ({
           </Space>
         </div>
       }
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+      styles={{
+        header: { flexShrink: 0 },
+        body: {
+          flexGrow: 1,
+          padding: 0,
+          overflow: 'hidden'
+        }
+      }}
     >
       <TextArea
         ref={outputRef}
         value={output}
         placeholder="命令执行输出将显示在这里..."
-        rows={20}
         readOnly
         style={{ 
+          height: '100%',
           fontFamily: 'Monaco, Consolas, "Courier New", monospace',
           fontSize: '13px',
           backgroundColor: '#1e1e1e',
           color: '#d4d4d4',
           border: 'none',
           userSelect: 'text',
-          cursor: 'text'
+          cursor: 'text',
+          resize: 'none'
         }}
         onDoubleClick={(e) => {
           // 双击时选择当前行

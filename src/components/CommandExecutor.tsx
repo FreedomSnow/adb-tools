@@ -193,7 +193,7 @@ const CommandExecutor: React.FC = () => {
       <div style={{ marginBottom: 16 }}>
         <Row gutter={16} align="middle">
           <Col>
-            <Title level={4} style={{ margin: 0 }}>命令执行器</Title>
+            <Title level={4} style={{ margin: 0 }}>命令执行</Title>
           </Col>
         </Row>
       </div>
@@ -205,7 +205,7 @@ const CommandExecutor: React.FC = () => {
 
       <Row gutter={16} justify="space-between">
         {/* 命令输入区域 */}
-        <Col span={16}>
+        <Col span={16} style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 240px)' }}>
           <CommandInput
             command={command}
             setCommand={setCommand}
@@ -219,14 +219,16 @@ const CommandExecutor: React.FC = () => {
           />
 
           {/* 输出区域 */}
-          <CommandOutput
-            output={output}
-            clearOutput={clearOutput}
-          />
+          <div style={{ flexGrow: 1, marginTop: 16, overflow: 'hidden' }}>
+            <CommandOutput
+              output={output}
+              clearOutput={clearOutput}
+            />
+          </div>
         </Col>
 
         {/* 预设命令 */}
-        <Col span={8}>
+        <Col span={8} style={{ height: 'calc(100vh - 240px)' }}>
           <PresetCommands
             presetCommands={presetCommands}
             onCommandsChange={savePresetCommands}

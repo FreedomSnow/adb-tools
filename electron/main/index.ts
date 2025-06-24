@@ -636,6 +636,49 @@ ipcMain.handle('get-installed-apps', async (_, deviceId: string) => {
   }
 })
 
+// 卸载应用
+ipcMain.handle('uninstall-app', async (_, deviceId: string, packageName: string) => {
+  try {
+    const adbPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+      : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+    
+    const command = `"${adbPath}" -s ${deviceId} shell pm uninstall ${packageName}`
+    console.log('卸载应用命令:', command)
+    
+    const { stdout, stderr } = await execAsync(command, { timeout: 30000 })
+    
+    // 检查卸载结果
+    if (stdout.includes('Success') || stdout.includes('success')) {
+      return {
+        success: true,
+        data: '应用卸载成功'
+      }
+    } else if (stderr && stderr.includes('Failure')) {
+      throw new Error(stderr)
+    } else {
+      // 如果没有明确的成功或失败信息，检查应用是否还存在
+      const checkCommand = `"${adbPath}" -s ${deviceId} shell pm list packages ${packageName}`
+      const checkResult = await execAsync(checkCommand)
+      
+      if (checkResult.stdout.includes(packageName)) {
+        throw new Error('应用卸载失败，应用仍然存在')
+      } else {
+        return {
+          success: true,
+          data: '应用卸载成功'
+        }
+      }
+    }
+  } catch (error: any) {
+    console.error('卸载应用失败:', error)
+    return {
+      success: false,
+      error: error.message || '卸载应用失败'
+    }
+  }
+})
+
 // 获取用户主目录
 ipcMain.handle('get-user-home-dir', () => {
   return app.getPath('home')

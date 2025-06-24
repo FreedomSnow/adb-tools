@@ -80,7 +80,16 @@ interface AdbToolsAPI {
     data?: Array<{
       path: string
       packageName: string
+      appName: string
+      versionName: string
     }>
+    error?: string
+  }>
+  
+  // 卸载应用
+  uninstallApp: (deviceId: string, packageName: string) => Promise<{
+    success: boolean
+    data?: string
     error?: string
   }>
   

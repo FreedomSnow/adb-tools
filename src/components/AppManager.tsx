@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { Button, Typography, Row, Col, Select, Input, Space, Divider, Card, Avatar, Tag, Table, message } from 'antd'
 import { AndroidOutlined, ArrowLeftOutlined, DeleteOutlined, InfoCircleOutlined, PlayCircleOutlined, SearchOutlined, StopOutlined, UploadOutlined } from '@ant-design/icons'
 import { useNavigate, Routes, Route, useLocation } from 'react-router-dom'
@@ -9,6 +9,9 @@ import { useDevice } from '../contexts/DeviceContext'
 import { usePage } from '../contexts/PageContext'
 import { AppInfo } from '@/types/app'
 import InstallApk from './InstallApk'
+import UninstallConfirmModal from './UninstallConfirmModal'
+import useInstalledApps from './useInstalledApps'
+import AppDetailModal from './AppDetailModal'
 
 const { Title, Text } = Typography
 const { Option } = Select
@@ -92,15 +95,47 @@ const AppManager: React.FC = () => {
   const { navigateToPage } = usePage()
   const [searchType, setSearchType] = useState<SearchType>('all')
   const [searchContent, setSearchContent] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [apps, setApps] = useState<AppInfo[]>([])
-  const [searchResults, setSearchResults] = useState<AppInfo[]>([])
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 10,
     total: 0
   })
-  const [columns, setColumns] = useState([
+  
+  // 使用 useInstalledApps Hook
+  const { loading, apps, error, total, fetchApps, loadPageDetails } = useInstalledApps()
+  
+  // 卸载相关状态
+  const [uninstallModalVisible, setUninstallModalVisible] = useState(false)
+  const [selectedPackageName, setSelectedPackageName] = useState<string | null>(null)
+  const [uninstallLoading, setUninstallLoading] = useState(false)
+  // 详情相关状态
+  const [detailModalVisible, setDetailModalVisible] = useState(false)
+  const [detailDeviceId, setDetailDeviceId] = useState<string | null>(null)
+  const [detailPackageName, setDetailPackageName] = useState<string | null>(null)
+
+  // 使用 useEffect 监听 total 变化，并同步到 pagination
+  useEffect(() => {
+    setPagination(prev => ({
+      ...prev,
+      total: total,
+    }))
+  }, [total])
+
+  // 处理卸载按钮点击
+  const handleUninstallClick = (app: AppInfo) => {
+    setSelectedPackageName(app.packageName)
+    setUninstallModalVisible(true)
+  }
+
+  // 处理详情按钮点击
+  const handleDetailClick = (app: AppInfo) => {
+    setDetailDeviceId(selectedDevice?.id || null)
+    setDetailPackageName(app.packageName)
+    setDetailModalVisible(true)
+  }
+
+  // 使用 useMemo 定义 columns，避免重复创建
+  const columns = useMemo(() => [
     {
       title: '应用名称',
       key: 'appName',
@@ -125,7 +160,7 @@ const AppManager: React.FC = () => {
     {
       title: '类型',
       key: 'type',
-      width: 100,
+      width: 120,
       render: (_: any, record: AppInfo) => (
         <Tag color={record.isSystem ? 'blue' : 'green'}>
           {record.isSystem ? '系统应用' : '用户应用'}
@@ -140,26 +175,15 @@ const AppManager: React.FC = () => {
         <Space>
           <Button 
             type="primary" 
-            icon={<InfoCircleOutlined />}
+            icon={<InfoCircleOutlined />} 
+            onClick={() => handleDetailClick(record)}
           >
             详情
           </Button>
-          
-          {!record.isSystem && (
-            <Button 
-              style={{ marginLeft: 20 }}
-              type="primary" 
-              danger
-              icon={<DeleteOutlined />}
-              disabled={!selectedDevice || selectedDevice.status !== 'device'}
-            >
-              卸载
-            </Button>
-          )}
         </Space>
       )
     }
-  ])
+  ], [selectedDevice, handleUninstallClick])
 
   // 搜索类型选项
   const searchTypeOptions = [
@@ -175,69 +199,30 @@ const AppManager: React.FC = () => {
       return
     }
 
-    setLoading(true)
-    try {
-      const result = await window.adbToolsAPI.getInstalledApps(selectedDevice.id)
-      if (result.success && result.data) {
-        let filteredApps = result.data
+    // 搜索时，仅重置页码到第一页
+    setPagination(prev => ({
+      ...prev,
+      current: 1
+    }))
 
-        // 根据搜索类型过滤
-        if (searchType === 'system') {
-          filteredApps = filteredApps.filter(app => app.path.includes('/system/'))
-        } else if (searchType === 'user') {
-          filteredApps = filteredApps.filter(app => !app.path.includes('/system/'))
-        }
-        
-        // 根据搜索内容过滤
-        if (searchContent) {
-          const searchLower = searchContent.toLowerCase()
-          filteredApps = filteredApps.filter(app => 
-            app.packageName.toLowerCase().includes(searchLower)
-          )
-        }
-
-        // 转换为 AppInfo 类型
-        const apps: AppInfo[] = filteredApps.map(app => ({
-          packageName: app.packageName,
-          appName: app.packageName, // 暂时使用包名作为应用名
-          versionName: '', // 需要额外获取
-          versionCode: '', // 需要额外获取
-          isSystem: app.path.includes('/system/'),
-          isRunning: false, // 需要额外获取
-          installTime: '', // 需要额外获取
-        }))
-
-        setApps(apps)
-        setSearchResults(apps)
-        setPagination(prev => ({
-          ...prev,
-          current: 1,
-          total: apps.length
-        }))
-      } else {
-        message.error(result.error || '获取应用列表失败')
-      }
-    } catch (error) {
-      console.error('获取应用列表失败:', error)
-      message.error('获取应用列表失败')
-    } finally {
-      setLoading(false)
-    }
+    await fetchApps(selectedDevice.id, searchType, searchContent)
   }
 
   // 处理分页变化
-  const handleTableChange = (newPagination: any) => {
+  const handleTableChange = async (newPagination: any) => {
     setPagination(newPagination)
+    
+    // 加载新页面的应用详情
+    if (selectedDevice) {
+      await loadPageDetails(selectedDevice.id, newPagination.current, newPagination.pageSize)
+    }
   }
 
   // 处理列宽调整
   const handleResize = (index: number) => (e: any, { size }: any) => {
-    const newColumns = [...columns]
-    newColumns[index] = {
-      ...newColumns[index],
-      width: size.width,
-    }
-    setColumns(newColumns)
+    // 由于使用 useMemo，这里不再修改 columns
+    // 如果需要动态调整列宽，需要重新设计状态管理
+    console.log('列宽调整:', index, size.width)
   }
 
   // 合并列配置
@@ -252,6 +237,46 @@ const AppManager: React.FC = () => {
 
   // 检查是否在安装 APK 页面
   const isInstallApkPage = location.pathname.includes('/apps/install-apk')
+
+  // 处理卸载确认
+  const handleUninstallConfirm = async () => {
+    if (!selectedPackageName || !selectedDevice) {
+      message.error('缺少必要信息')
+      return
+    }
+
+    setUninstallLoading(true)
+    try {
+      const result = await window.adbToolsAPI.uninstallApp(selectedDevice.id, selectedPackageName)
+      if (result.success) {
+        message.success(`应用 ${selectedPackageName} 卸载成功`)
+        // 重新获取应用列表
+        await fetchApps(selectedDevice.id, searchType, searchContent)
+        setUninstallModalVisible(false)
+        setSelectedPackageName(null)
+      } else {
+        message.error(result.error || '卸载失败')
+      }
+    } catch (error) {
+      console.error('卸载应用失败:', error)
+      message.error('卸载应用失败')
+    } finally {
+      setUninstallLoading(false)
+    }
+  }
+
+  // 处理卸载取消
+  const handleUninstallCancel = () => {
+    setUninstallModalVisible(false)
+    setSelectedPackageName(null)
+  }
+
+  // 显示错误信息
+  React.useEffect(() => {
+    if (error) {
+      message.error(error)
+    }
+  }, [error])
 
   return (
     <div>
@@ -319,7 +344,7 @@ const AppManager: React.FC = () => {
                     },
                   }}
                   columns={mergedColumns}
-                  dataSource={searchResults}
+                  dataSource={apps}
                   rowKey="packageName"
                   loading={loading}
                   pagination={{
@@ -342,6 +367,26 @@ const AppManager: React.FC = () => {
               </Space>
             </div>
           )}
+
+          {/* 卸载确认框 */}
+          <UninstallConfirmModal
+            visible={uninstallModalVisible}
+            packageName={selectedPackageName}
+            deviceId={selectedDevice?.id || null}
+            onCancel={handleUninstallCancel}
+            onConfirm={handleUninstallConfirm}
+            loading={uninstallLoading}
+          />
+          {/* 应用详情弹窗 */}
+          <AppDetailModal
+            visible={detailModalVisible}
+            deviceId={detailDeviceId}
+            packageName={detailPackageName}
+            onCancel={() => setDetailModalVisible(false)}
+            onUninstalled={() => {
+              if (selectedDevice) fetchApps(selectedDevice.id, searchType, searchContent)
+            }}
+          />
         </>
       ) : (
         <InstallApk />

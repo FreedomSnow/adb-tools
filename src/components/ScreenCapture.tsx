@@ -40,9 +40,7 @@ const ScreenCapture: React.FC = () => {
   const handleOpenScreenshotFolder = async () => {
     if (!lastScreenshotPath) return
     try {
-      const dirPath = lastScreenshotPath.substring(0, lastScreenshotPath.lastIndexOf('/'))
-      console.log(dirPath)
-      await window.adbToolsAPI.openFolder(dirPath)
+      await window.adbToolsAPI.showItemInFolder(lastScreenshotPath)
     } catch (error) {
       console.error('打开文件夹失败:', error)
       message.error('打开文件夹失败')
@@ -52,8 +50,7 @@ const ScreenCapture: React.FC = () => {
   const handleOpenRecordFolder = async () => {
     if (!lastRecordPath) return
     try {
-      const dirPath = lastRecordPath.substring(0, lastRecordPath.lastIndexOf('/'))
-      await window.adbToolsAPI.openFolder(dirPath)
+      await window.adbToolsAPI.showItemInFolder(lastRecordPath)
     } catch (error) {
       console.error('打开文件夹失败:', error)
       message.error('打开文件夹失败')

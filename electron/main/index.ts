@@ -212,6 +212,17 @@ ipcMain.handle('open-folder', async (_, path: string) => {
   }
 })
 
+// 在文件夹中显示文件
+ipcMain.handle('show-item-in-folder', async (_, filePath: string) => {
+  try {
+    shell.showItemInFolder(filePath)
+    return { success: true }
+  } catch (error) {
+    console.error('在文件夹中显示文件失败:', error)
+    return { success: false, error: error.message }
+  }
+})
+
 // ADB命令队列管理，防止过多并发导致系统卡顿
 class ADBCommandQueue {
   private queue: Array<() => Promise<any>> = []

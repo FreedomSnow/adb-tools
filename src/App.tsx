@@ -26,7 +26,7 @@ import QuickActions from './components/QuickActions'
 import ScreenCapture from './components/ScreenCapture'
 import QueueMonitor from './components/QueueMonitor'
 import InstallApk from './components/InstallApk'
-import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
+import { HashRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 // 导入类型声明
 import './types/electron.d.ts'
 

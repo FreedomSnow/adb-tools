@@ -209,7 +209,7 @@ const InstallApk: React.FC = () => {
   }
 
   return (
-    <div>
+    <div style={{ height: 'calc(100vh - 70px)', overflowY: 'auto', paddingRight: '16px' }}>
       <div style={{ marginBottom: 16 }}>
         <Row gutter={16} align="middle">
           <Col>
@@ -354,7 +354,7 @@ const InstallApk: React.FC = () => {
             </Col>
           </Row>
 
-          {installing && (
+          {/* {installing && (
             <div style={{ marginTop: 16 }}>
               <Text>正在安装APK到 {selectedDevice?.model}...</Text>
               <Progress 
@@ -362,23 +362,25 @@ const InstallApk: React.FC = () => {
                 status={uploadProgress === 100 ? 'success' : 'active'}
               />
             </div>
-          )}
+          )} */}
 
-          {commandOutput.length > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <Card
-                size="small"
-                title="安装日志"
-                bodyStyle={{ 
-                  maxHeight: '200px', 
+          <div style={{ marginTop: 16 }}>
+            <Card
+              size="small"
+              title="安装日志"
+              styles={{
+                body: {
+                  maxHeight: '300px', 
                   overflowY: 'auto',
                   backgroundColor: '#1e1e1e',
                   padding: '12px',
                   userSelect: 'text',
                   cursor: 'text'
-                }}
-              >
-                {commandOutput.map((line, index) => (
+                }
+              }}
+            >
+              {commandOutput.length > 0 ? (
+                commandOutput.map((line, index) => (
                   <div key={index} style={{ 
                     fontFamily: 'monospace',
                     whiteSpace: 'pre-wrap',
@@ -388,10 +390,12 @@ const InstallApk: React.FC = () => {
                   }}>
                     {line}
                   </div>
-                ))}
-              </Card>
-            </div>
-          )}
+                ))
+              ) : (
+                <div style={{ color: '#888', textAlign: 'center' }}>暂无日志</div>
+              )}
+            </Card>
+          </div>
         </Space>
       </Card>
     </div>

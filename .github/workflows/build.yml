@@ -62,7 +62,7 @@ jobs:
     - name: Sign app
       if: matrix.os == 'macos-latest'
       run: |
-        npx electron-osx-sign release/YourApp.app --identity="Developer ID Application: Jiepeng Du (2UPAP45HZK)"
+        npx electron-osx-sign "release/mac-arm64/ADB Tools.app" --identity="Developer ID Application: Jiepeng Du (2UPAP45HZK)"
 
     - name: Build for Windows
       if: matrix.os == 'windows-latest'

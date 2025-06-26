@@ -5,9 +5,11 @@ import {
   message,
   Row,
   Col,
-  Alert
+  Alert,
+  Button
 } from 'antd'
 import { useDevice } from '../contexts/DeviceContext'
+import { usePage } from '../contexts/PageContext'
 import DeviceSelector from './DeviceSelector'
 import CommandInput from './CommandExecutor/CommandInput'
 import CommandOutput from './CommandExecutor/CommandOutput'
@@ -29,6 +31,13 @@ interface PresetCommand {
   isCustom?: boolean
 }
 
+interface CommandExecutorState {
+  command: string
+  output: string
+  commandHistory: CommandHistory[]
+  presetCommands: PresetCommand[]
+}
+
 const defaultPresetCommands: PresetCommand[] = [
   { id: '1', label: '获取设备信息', value: 'adb shell getprop' },
   { id: '2', label: '查看已安装应用', value: 'adb shell pm list packages' },
@@ -44,18 +53,66 @@ const defaultPresetCommands: PresetCommand[] = [
   { id: '12', label: '进入下载模式', value: 'adb reboot download' }
 ]
 
+// 在顶部定义 localStorage 的 key
+const COMMAND_HISTORY_KEY = 'adbToolsCommandHistory'
+
 const CommandExecutor: React.FC = () => {
   const { selectedDevice } = useDevice()
-  const [command, setCommand] = useState('')
-  const [output, setOutput] = useState('')
+  const { getPageState, setPageState } = usePage()
+  
+  // 从页面状态恢复数据
+  const savedState = getPageState('commands').params as CommandExecutorState | undefined
+  
+  const [command, setCommand] = useState(savedState?.command || '')
+  const [output, setOutput] = useState(savedState?.output || '')
   const [executing, setExecuting] = useState(false)
-  const [commandHistory, setCommandHistory] = useState<CommandHistory[]>([])
   const [showHistory, setShowHistory] = useState(false)
-  const [presetCommands, setPresetCommands] = useState<PresetCommand[]>([])
+  const [presetCommands, setPresetCommands] = useState<PresetCommand[]>(savedState?.presetCommands || [])
 
-  // 从文件加载预设命令
+  // 初始化 commandHistory 时，优先从 localStorage 读取
+  const getInitialCommandHistory = () => {
+    const local = localStorage.getItem(COMMAND_HISTORY_KEY)
+    if (local) {
+      try {
+        return JSON.parse(local) as CommandHistory[]
+      } catch {
+        return savedState?.commandHistory || []
+      }
+    }
+    return savedState?.commandHistory || []
+  }
+
+  const [commandHistory, setCommandHistory] = useState<CommandHistory[]>(getInitialCommandHistory())
+
+  // 监听 commandHistory 变化并存储到 localStorage
   useEffect(() => {
-    loadPresetCommands()
+    localStorage.setItem(COMMAND_HISTORY_KEY, JSON.stringify(commandHistory))
+  }, [commandHistory])
+
+  // 保存页面状态
+  const savePageState = () => {
+    const state: CommandExecutorState = {
+      command,
+      output,
+      commandHistory,
+      presetCommands
+    }
+    setPageState('commands', {
+      path: getPageState('commands').path,
+      params: state
+    })
+  }
+
+  // 当状态变化时保存页面状态
+  useEffect(() => {
+    savePageState()
+  }, [command, output, commandHistory, presetCommands])
+
+  // 从文件加载预设命令（仅在首次加载时）
+  useEffect(() => {
+    if (presetCommands.length === 0) {
+      loadPresetCommands()
+    }
   }, [])
 
   const loadPresetCommands = async () => {
@@ -65,6 +122,8 @@ const CommandExecutor: React.FC = () => {
     } catch (error) {
       console.error('加载预设命令失败:', error)
       message.error('加载预设命令失败')
+      // 如果加载失败，使用默认预设命令
+      setPresetCommands(defaultPresetCommands)
     }
   }
 
@@ -183,6 +242,21 @@ const CommandExecutor: React.FC = () => {
     setOutput('')
   }
 
+  // const clearSavedState = () => {
+  //   setCommand('')
+  //   setOutput('')
+  //   setCommandHistory([])
+  //   setPresetCommands(defaultPresetCommands)
+  //   // 清除页面状态
+  //   setPageState('commands', {
+  //     path: getPageState('commands').path,
+  //     params: undefined
+  //   })
+  //   // 清除本地历史记录
+  //   localStorage.removeItem(COMMAND_HISTORY_KEY)
+  //   message.success('已清除保存的页面内容')
+  // }
+
   const handleHistorySelect = (cmd: string) => {
     setCommand(cmd)
     setShowHistory(false)
@@ -191,7 +265,7 @@ const CommandExecutor: React.FC = () => {
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
-        <Row gutter={16} align="middle">
+        <Row gutter={16} align="middle" justify="space-between">
           <Col>
             <Title level={4} style={{ margin: 0 }}>命令执行</Title>
           </Col>

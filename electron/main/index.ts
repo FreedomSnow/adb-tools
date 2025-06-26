@@ -11,6 +11,50 @@ const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const execAsync = promisify(exec)
 
+// 安全的日志函数，避免EIO错误
+const safeLog = (message: string, ...args: any[]) => {
+  try {
+    // 检查stdout是否可写
+    if (process.stdout.writable) {
+      console.log(message, ...args)
+    }
+  } catch (error) {
+    // 如果console.log失败，尝试写入文件
+    try {
+      const fs = require('fs')
+      const logPath = path.join(process.cwd(), 'app-error.log')
+      const timestamp = new Date().toISOString()
+      const logMessage = `[${timestamp}] ${message} ${args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+      ).join(' ')}\n`
+      fs.appendFileSync(logPath, logMessage)
+    } catch (fileError) {
+      // 如果文件写入也失败，静默处理
+    }
+  }
+}
+
+// 安全的错误日志函数
+const safeErrorLog = (message: string, ...args: any[]) => {
+  try {
+    if (process.stderr.writable) {
+      console.error(message, ...args)
+    }
+  } catch (error) {
+    try {
+      const fs = require('fs')
+      const logPath = path.join(process.cwd(), 'app-error.log')
+      const timestamp = new Date().toISOString()
+      const logMessage = `[${timestamp}] ERROR: ${message} ${args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+      ).join(' ')}\n`
+      fs.appendFileSync(logPath, logMessage)
+    } catch (fileError) {
+      // 静默处理
+    }
+  }
+}
+
 // The built directory structure
 //
 // ├─┬ dist
@@ -64,47 +108,47 @@ async function createWindow() {
     },
   })
 
-  console.log('Environment variables:')
-  console.log('VITE_DEV_SERVER_URL:', process.env.VITE_DEV_SERVER_URL)
-  console.log('DIST:', process.env.DIST)
-  console.log('Index HTML path:', indexHtml)
-  console.log('App is packaged:', app.isPackaged)
+  safeLog('Environment variables:')
+  safeLog('VITE_DEV_SERVER_URL:', process.env.VITE_DEV_SERVER_URL)
+  safeLog('DIST:', process.env.DIST)
+  safeLog('Index HTML path:', indexHtml)
+  safeLog('App is packaged:', app.isPackaged)
 
   if (url) { // electron-vite-vue#298
-    console.log('Loading development URL:', url)
+    safeLog('Loading development URL:', url)
     win.loadURL(url)
     // Open devTool if the app is not packaged
     win.webContents.openDevTools()
   } else {
-    console.log('Loading production HTML file:', indexHtml)
+    safeLog('Loading production HTML file:', indexHtml)
     // 检查文件是否存在
     const fs = require('fs')
     if (fs.existsSync(indexHtml)) {
-      console.log('HTML file exists, loading...')
+      safeLog('HTML file exists, loading...')
       win.loadFile(indexHtml)
     } else {
-      console.error('HTML file does not exist at:', indexHtml)
+      safeErrorLog('HTML file does not exist at:', indexHtml)
       // 尝试其他可能的路径
       const alternativePath = path.join(__dirname, '../renderer/index.html')
-      console.log('Trying alternative path:', alternativePath)
+      safeLog('Trying alternative path:', alternativePath)
       if (fs.existsSync(alternativePath)) {
-        console.log('Alternative path exists, loading...')
+        safeLog('Alternative path exists, loading...')
         win.loadFile(alternativePath)
       } else {
-        console.error('Alternative path also does not exist')
+        safeErrorLog('Alternative path also does not exist')
       }
     }
   }
 
   // Test actively push message to the Electron-Renderer
   win.webContents.on('did-finish-load', () => {
-    console.log('Window finished loading')
+    safeLog('Window finished loading')
     win?.webContents.send('main-process-message', new Date().toLocaleString())
   })
 
   // 添加加载失败处理
   win.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-    console.error('Failed to load:', {
+    safeErrorLog('Failed to load:', {
       errorCode,
       errorDescription,
       validatedURL,
@@ -207,7 +251,7 @@ ipcMain.handle('open-folder', async (_, path: string) => {
     await shell.openPath(path)
     return { success: true }
   } catch (error) {
-    console.error('打开文件夹失败:', error)
+    safeErrorLog('打开文件夹失败:', error)
     return { success: false, error: error.message }
   }
 })
@@ -240,7 +284,7 @@ class ADBCommandQueue {
     return new Promise((resolve, reject) => {
       this.queue.push(async () => {
         try {
-          console.log(`[${this.name}队列] 开始执行命令，当前并发: ${this.concurrency}/${this.maxConcurrency}`)
+          safeLog(`[${this.name}队列] 开始执行命令，当前并发: ${this.concurrency}/${this.maxConcurrency}`)
           const result = await command()
           resolve(result)
         } catch (error) {
@@ -248,7 +292,7 @@ class ADBCommandQueue {
         }
       })
       
-      console.log(`[${this.name}队列] 添加任务，队列长度: ${this.queue.length}`)
+      safeLog(`[${this.name}队列] 添加任务，队列长度: ${this.queue.length}`)
       this.process()
     })
   }
@@ -269,12 +313,12 @@ class ADBCommandQueue {
       const command = this.queue.shift()
       if (command) {
         this.concurrency++
-        console.log(`[${this.name}队列] 启动任务，当前并发: ${this.concurrency}/${this.maxConcurrency}，剩余队列: ${this.queue.length}`)
+        safeLog(`[${this.name}队列] 启动任务，当前并发: ${this.concurrency}/${this.maxConcurrency}，剩余队列: ${this.queue.length}`)
         
         // 异步执行命令，不阻塞其他命令的启动
         command().finally(() => {
           this.concurrency--
-          console.log(`[${this.name}队列] 任务完成，当前并发: ${this.concurrency}/${this.maxConcurrency}，剩余队列: ${this.queue.length}`)
+          safeLog(`[${this.name}队列] 任务完成，当前并发: ${this.concurrency}/${this.maxConcurrency}，剩余队列: ${this.queue.length}`)
           
           // 如果还有任务且有空闲槽位，继续处理
           if (this.queue.length > 0 && this.concurrency < this.maxConcurrency) {
@@ -358,7 +402,7 @@ ipcMain.handle('get-adb-path', () => {
 ipcMain.handle('exec-adb-command', async (_, command: string) => {
   // 根据命令类型选择合适的队列
   const selectedQueue = selectQueue(command)
-  console.log(`命令 "${command}" 被分配到 ${selectedQueue.getStatus().name} 队列`)
+  safeLog(`命令 "${command}" 被分配到 ${selectedQueue.getStatus().name} 队列`)
   
   return selectedQueue.add(async () => {
     try {
@@ -378,7 +422,7 @@ ipcMain.handle('exec-adb-command', async (_, command: string) => {
         ? `"${adbPath}" ${processedCommand}`
         : `"${adbPath}"`
       
-      console.log('执行命令:', fullCommand)
+      safeLog('执行命令:', fullCommand)
       
       const { stdout, stderr } = await execAsync(fullCommand, { 
         timeout: 30000,
@@ -408,7 +452,7 @@ ipcMain.handle('exec-adb-command', async (_, command: string) => {
       
       // 对于monkey命令，如果stderr包含调试信息但没有明确错误，认为成功
       if (isMonkeyCommand && shouldIgnoreStderr && !stderr.includes('Error:') && !stderr.includes('CRASH')) {
-        console.log('Monkey命令输出调试信息，但执行成功')
+        safeLog('Monkey命令输出调试信息，但执行成功')
         return { success: true, data: stdout.trim() || 'Command executed successfully' }
       }
       
@@ -425,7 +469,7 @@ ipcMain.handle('exec-adb-command', async (_, command: string) => {
     
       return { success: true, data: stdout.trim() }
     } catch (error: any) {
-      console.error('ADB命令执行失败:', error)
+      safeErrorLog('ADB命令执行失败:', error)
       return { success: false, error: error.message }
     }
   })
@@ -438,16 +482,16 @@ ipcMain.handle('restart-adb-server', async () => {
       ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
       : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
     
-    console.log('正在重启ADB服务器...')
+    safeLog('正在重启ADB服务器...')
     
     // 先停止ADB服务器
     try {
       const killCommand = `"${adbPath}" kill-server`
-      console.log('停止ADB服务器:', killCommand)
+      safeLog('停止ADB服务器:', killCommand)
       await execAsync(killCommand, { timeout: 5000 })
-      console.log('ADB服务器已停止')
+      safeLog('ADB服务器已停止')
     } catch (error) {
-      console.log('停止ADB服务器时出现错误（可能服务器已经停止）:', error)
+      safeLog('停止ADB服务器时出现错误（可能服务器已经停止）:', error)
     }
     
     // 等待一秒钟确保服务器完全停止
@@ -455,18 +499,18 @@ ipcMain.handle('restart-adb-server', async () => {
     
     // 启动ADB服务器
     const startCommand = `"${adbPath}" start-server`
-    console.log('启动ADB服务器:', startCommand)
+    safeLog('启动ADB服务器:', startCommand)
     const { stdout, stderr } = await execAsync(startCommand, { 
       timeout: 10000,
       maxBuffer: 1024 * 1024
     })
     
-    console.log('ADB服务器启动结果 - stdout:', stdout)
-    console.log('ADB服务器启动结果 - stderr:', stderr)
+    safeLog('ADB服务器启动结果 - stdout:', stdout)
+    safeLog('ADB服务器启动结果 - stderr:', stderr)
     
     return { success: true, data: 'ADB服务器重启成功' }
   } catch (error: any) {
-    console.error('重启ADB服务器失败:', error)
+    safeErrorLog('重启ADB服务器失败:', error)
     return { success: false, error: error.message }
   }
 })
@@ -474,7 +518,7 @@ ipcMain.handle('restart-adb-server', async () => {
 // 获取设备列表 - 使用快速队列避免被批量操作阻塞
 ipcMain.handle('get-devices', async () => {
   // 使用快速队列，确保设备列表获取不会被批量操作阻塞
-  console.log('设备列表获取使用快速队列')
+  safeLog('设备列表获取使用快速队列')
   return fastQueue.add(async () => {
     try {
       const adbPath = app.isPackaged
@@ -482,7 +526,7 @@ ipcMain.handle('get-devices', async () => {
         : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
       
       const fullCommand = `"${adbPath}" devices -l`
-      console.log('执行命令:', fullCommand)
+      safeLog('执行命令:', fullCommand)
       
       const { stdout, stderr } = await execAsync(fullCommand, { 
         timeout: 10000,
@@ -495,7 +539,7 @@ ipcMain.handle('get-devices', async () => {
             stderr.includes('failed to start daemon') ||
             stderr.includes('cannot connect to daemon')) {
           
-          console.log('检测到ADB服务器问题，尝试重启...')
+          safeLog('检测到ADB服务器问题，尝试重启...')
           
           // 尝试重启ADB服务器
           try {
@@ -520,7 +564,7 @@ ipcMain.handle('get-devices', async () => {
       
       return { success: true, data: stdout.trim() }
     } catch (error: any) {
-      console.error('ADB命令执行失败:', error)
+      safeErrorLog('ADB命令执行失败:', error)
       return { success: false, error: error.message }
     }
   })
@@ -559,31 +603,31 @@ ipcMain.handle('install-apk', async (_, fileData: Buffer | Uint8Array, fileName:
     // 写入文件
     fs.writeFileSync(tempPath, fileBuffer)
     
-    console.log('临时文件创建成功:', tempPath)
+    safeLog('临时文件创建成功:', tempPath)
     
     // 将APK文件推送到设备
     const devicePath = `/data/local/tmp/temp_install.apk`
     const pushCommand = `"${adbPath}" -s ${deviceId} push "${tempPath}" "${devicePath}"`
     
-    console.log('推送APK到设备:', pushCommand)
+    safeLog('推送APK到设备:', pushCommand)
     
     const pushResult = await execAsync(pushCommand)
-    console.log('推送结果:', pushResult)
+    safeLog('推送结果:', pushResult)
     
     // 安装APK，添加安装参数
     const installCommand = `"${adbPath}" -s ${deviceId} shell pm install ${installOptions || ''} "${devicePath}"`
     
-    console.log('安装APK命令:', installCommand)
+    safeLog('安装APK命令:', installCommand)
     
     const installResult = await execAsync(installCommand)
-    console.log('安装结果:', installResult)
+    safeLog('安装结果:', installResult)
     
     // 清理临时文件
     try {
       fs.unlinkSync(tempPath)
-      console.log('本地临时文件已清理')
+      safeLog('本地临时文件已清理')
     } catch (error) {
-      console.log('清理本地临时文件失败:', error)
+      safeErrorLog('清理本地临时文件失败:', error)
     }
     
     // 清理设备上的临时文件
@@ -591,7 +635,7 @@ ipcMain.handle('install-apk', async (_, fileData: Buffer | Uint8Array, fileName:
     try {
       await execAsync(cleanupCommand)
     } catch (err) {
-      console.log('清理设备临时文件失败:', err)
+      safeErrorLog('清理设备临时文件失败:', err)
     }
     
     return {
@@ -599,7 +643,7 @@ ipcMain.handle('install-apk', async (_, fileData: Buffer | Uint8Array, fileName:
       data: installResult.stdout || installResult.stderr || '安装完成'
     }
   } catch (error: any) {
-    console.error('APK安装失败:', error)
+    safeErrorLog('APK安装失败:', error)
     return {
       success: false,
       error: error.message || '安装失败'
@@ -639,7 +683,7 @@ ipcMain.handle('get-installed-apps', async (_, deviceId: string) => {
       data: apps
     }
   } catch (error: any) {
-    console.error('获取应用列表失败:', error)
+    safeErrorLog('获取应用列表失败:', error)
     return {
       success: false,
       error: error.message || '获取应用列表失败'
@@ -655,7 +699,7 @@ ipcMain.handle('uninstall-app', async (_, deviceId: string, packageName: string)
       : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
     
     const command = `"${adbPath}" -s ${deviceId} shell pm uninstall ${packageName}`
-    console.log('卸载应用命令:', command)
+    safeLog('卸载应用命令:', command)
     
     const { stdout, stderr } = await execAsync(command, { timeout: 30000 })
     
@@ -682,7 +726,7 @@ ipcMain.handle('uninstall-app', async (_, deviceId: string, packageName: string)
       }
     }
   } catch (error: any) {
-    console.error('卸载应用失败:', error)
+    safeErrorLog('卸载应用失败:', error)
     return {
       success: false,
       error: error.message || '卸载应用失败'
@@ -747,7 +791,7 @@ ipcMain.handle('get-preset-commands', async () => {
       return defaultPresetCommands
     }
   } catch (error) {
-    console.error('读取预设命令失败:', error)
+    safeErrorLog('读取预设命令失败:', error)
     return defaultPresetCommands
   }
 })
@@ -759,7 +803,7 @@ ipcMain.handle('save-preset-commands', async (_, commands) => {
     await fs.writeFile(filePath, JSON.stringify(commands, null, 2))
     return true
   } catch (error) {
-    console.error('保存预设命令失败:', error)
+    safeErrorLog('保存预设命令失败:', error)
     return false
   }
 })
@@ -783,7 +827,7 @@ ipcMain.handle('start-screen-record', async (_, deviceId: string, fileName: stri
     
     // 启动录屏进程
     const command = `${adbPath} -s ${deviceId} shell screenrecord /sdcard/${fileName}`
-    console.log('启动录屏命令:', command)
+    safeLog('启动录屏命令:', command)
     
     screenRecordProcess = spawn(command, [], {
       shell: true,
@@ -794,29 +838,29 @@ ipcMain.handle('start-screen-record', async (_, deviceId: string, fileName: stri
     
     // 监听进程输出
     screenRecordProcess.stdout?.on('data', (data: Buffer) => {
-      console.log('录屏输出:', data.toString())
+      safeLog('录屏输出:', data.toString())
     })
     
     screenRecordProcess.stderr?.on('data', (data: Buffer) => {
-      console.log('录屏错误:', data.toString())
+      safeLog('录屏错误:', data.toString())
     })
     
     // 监听进程退出
     screenRecordProcess.on('close', (code: number) => {
-      console.log('录屏进程退出，代码:', code)
+      safeLog('录屏进程退出，代码:', code)
       screenRecordProcess = null
       currentRecordingDevice = null
     })
     
     screenRecordProcess.on('error', (error: Error) => {
-      console.error('录屏进程错误:', error)
+      safeErrorLog('录屏进程错误:', error)
       screenRecordProcess = null
       currentRecordingDevice = null
     })
     
     return { success: true, data: '录屏已启动' }
   } catch (error: any) {
-    console.error('启动录屏失败:', error)
+    safeErrorLog('启动录屏失败:', error)
     return { success: false, error: error.message }
   }
 })
@@ -828,7 +872,7 @@ ipcMain.handle('stop-screen-record', async (_, deviceId: string, fileName: strin
       return { success: false, error: '没有找到对应的录屏进程' }
     }
     
-    console.log('停止录屏进程...')
+    safeLog('停止录屏进程...')
     
     // 发送 SIGINT 信号（相当于 Ctrl+C）
     screenRecordProcess.kill('SIGINT')
@@ -836,7 +880,7 @@ ipcMain.handle('stop-screen-record', async (_, deviceId: string, fileName: strin
     // 等待进程完全退出
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
-        console.log('录屏进程停止超时，强制终止')
+        safeLog('录屏进程停止超时，强制终止')
         screenRecordProcess?.kill('SIGKILL')
         resolve()
       }, 3000)
@@ -855,7 +899,7 @@ ipcMain.handle('stop-screen-record', async (_, deviceId: string, fileName: strin
     
     return { success: true, data: '录屏已停止' }
   } catch (error: any) {
-    console.error('停止录屏失败:', error)
+    safeErrorLog('停止录屏失败:', error)
     return { success: false, error: error.message }
   }
 })

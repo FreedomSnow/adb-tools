@@ -32,12 +32,13 @@ import {
 } from '@ant-design/icons'
 import { useDevice, Device } from '../contexts/DeviceContext'
 import { DeviceSorter } from '../utils/DeviceSorter'
+import { useLocation } from 'react-router-dom'
 
 const { Title, Text } = Typography
 const { Search } = Input
 
 const DeviceManager: React.FC = () => {
-  const { devices, setDevices, selectedDevice, setSelectedDevice } = useDevice()
+  const { devices, setDevices, selectedDevice, setSelectedDevice, hasRefreshedDeviceManager, setHasRefreshedDeviceManager, lastEnterDeviceManagerTime, setLastEnterDeviceManagerTime } = useDevice()
   const [loading, setLoading] = useState(false)
   const [detailDevice, setDetailDevice] = useState<Device | null>(null)
   const [wifiModalVisible, setWifiModalVisible] = useState(false)
@@ -57,6 +58,8 @@ const DeviceManager: React.FC = () => {
   
   // 保存上一次的设备列表，用于检测设备变化
   const prevDevicesRef = useRef<Device[]>([])
+
+  const location = useLocation()
 
   // 检测设备变化（连接和断开）
   const detectDeviceChanges = (currentDevices: Device[]) => {
@@ -759,6 +762,31 @@ const DeviceManager: React.FC = () => {
       )
     }
   ]
+
+  useEffect(() => {
+    if (!hasRefreshedDeviceManager) {
+      console.log('首次全局加载设备管理页面')
+      refreshDevices()
+      setHasRefreshedDeviceManager(true)
+    }
+    // eslint-disable-next-line
+  }, [])
+
+  useEffect(() => {
+    // 判断当前路径是否为设备管理页面
+    if (location.pathname === '/devices' || location.pathname === '/') {
+      const now = Date.now()
+      if (
+        lastEnterDeviceManagerTime &&
+        now - lastEnterDeviceManagerTime > 60 * 1000 // 1分钟
+      ) {
+        console.log('设备管理页面被显示，刷新设备')
+        refreshDevices()
+      }
+      setLastEnterDeviceManagerTime(now)
+    }
+    // eslint-disable-next-line
+  }, [location.pathname])
 
   return (
     <div>

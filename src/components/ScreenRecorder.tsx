@@ -28,7 +28,7 @@ export const useScreenRecorder = () => {
     }
 
     try {
-      const result = await window.adbToolsAPI.execAdbCommand(`-s ${selectedDevice.id} shell screenrecord /sdcard/${fileName}`)
+      const result = await window.adbToolsAPI.startScreenRecord(selectedDevice.id, fileName)
       if (result.success) {
         message.success('开始录屏')
         return true
@@ -49,11 +49,12 @@ export const useScreenRecorder = () => {
     }
 
     try {
-      // 发送 Ctrl+C 信号来停止录屏
-      await window.adbToolsAPI.execAdbCommand(`-s ${selectedDevice.id} shell pkill -SIGINT screenrecord`)
-      
-      // 等待文件写入完成
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      // 使用进程管理停止录屏
+      const stopResult = await window.adbToolsAPI.stopScreenRecord(selectedDevice.id, tempFileName)
+      if (!stopResult.success) {
+        message.error('停止录屏失败：' + stopResult.error)
+        return ''
+      }
       
       // 获取保存路径
       const saveResult = await window.adbToolsAPI.showSaveDialog({

@@ -751,4 +751,108 @@ ipcMain.handle('save-preset-commands', async (_, commands) => {
     console.error('保存预设命令失败:', error)
     return false
   }
+})
+
+// 录屏进程管理
+let screenRecordProcess: any = null
+let currentRecordingDevice: string | null = null
+
+// 启动录屏
+ipcMain.handle('start-screen-record', async (_, deviceId: string, fileName: string) => {
+  try {
+    const adbPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+      : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+    
+    // 如果已有录屏进程在运行，先停止
+    if (screenRecordProcess) {
+      screenRecordProcess.kill('SIGINT')
+      screenRecordProcess = null
+    }
+    
+    // 启动录屏进程
+    const command = `${adbPath} -s ${deviceId} shell screenrecord /sdcard/${fileName}`
+    console.log('启动录屏命令:', command)
+    
+    screenRecordProcess = spawn(command, [], {
+      shell: true,
+      stdio: ['pipe', 'pipe', 'pipe']
+    })
+    
+    currentRecordingDevice = deviceId
+    
+    // 监听进程输出
+    screenRecordProcess.stdout?.on('data', (data: Buffer) => {
+      console.log('录屏输出:', data.toString())
+    })
+    
+    screenRecordProcess.stderr?.on('data', (data: Buffer) => {
+      console.log('录屏错误:', data.toString())
+    })
+    
+    // 监听进程退出
+    screenRecordProcess.on('close', (code: number) => {
+      console.log('录屏进程退出，代码:', code)
+      screenRecordProcess = null
+      currentRecordingDevice = null
+    })
+    
+    screenRecordProcess.on('error', (error: Error) => {
+      console.error('录屏进程错误:', error)
+      screenRecordProcess = null
+      currentRecordingDevice = null
+    })
+    
+    return { success: true, data: '录屏已启动' }
+  } catch (error: any) {
+    console.error('启动录屏失败:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// 停止录屏
+ipcMain.handle('stop-screen-record', async (_, deviceId: string, fileName: string) => {
+  try {
+    if (!screenRecordProcess || currentRecordingDevice !== deviceId) {
+      return { success: false, error: '没有找到对应的录屏进程' }
+    }
+    
+    console.log('停止录屏进程...')
+    
+    // 发送 SIGINT 信号（相当于 Ctrl+C）
+    screenRecordProcess.kill('SIGINT')
+    
+    // 等待进程完全退出
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        console.log('录屏进程停止超时，强制终止')
+        screenRecordProcess?.kill('SIGKILL')
+        resolve()
+      }, 3000)
+      
+      screenRecordProcess.on('close', () => {
+        clearTimeout(timeout)
+        resolve()
+      })
+    })
+    
+    screenRecordProcess = null
+    currentRecordingDevice = null
+    
+    // 等待文件写入完成
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    
+    return { success: true, data: '录屏已停止' }
+  } catch (error: any) {
+    console.error('停止录屏失败:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// 获取录屏状态
+ipcMain.handle('get-screen-record-status', () => {
+  return {
+    isRecording: screenRecordProcess !== null,
+    deviceId: currentRecordingDevice
+  }
 }) 

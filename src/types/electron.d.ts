@@ -107,6 +107,26 @@ interface AdbToolsAPI {
   
   // 保存预设命令
   savePresetCommands: (commands: PresetCommand[]) => Promise<boolean>
+  
+  // 开始屏幕录制
+  startScreenRecord: (deviceId: string, fileName: string) => Promise<{
+    success: boolean
+    data?: string
+    error?: string
+  }>
+  
+  // 停止屏幕录制
+  stopScreenRecord: (deviceId: string, fileName: string) => Promise<{
+    success: boolean
+    data?: string
+    error?: string
+  }>
+  
+  // 获取屏幕录制状态
+  getScreenRecordStatus: () => Promise<{
+    isRecording: boolean
+    deviceId: string | null
+  }>
 }
 
 declare global {

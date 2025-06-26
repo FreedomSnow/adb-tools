@@ -111,6 +111,15 @@ const adbToolsAPI = {
   
   // 保存预设命令
   savePresetCommands: (commands: any) => ipcRenderer.invoke('save-preset-commands', commands),
+
+  // 开始屏幕录制
+  startScreenRecord: (deviceId: string, fileName: string) => ipcRenderer.invoke('start-screen-record', deviceId, fileName),
+  
+  // 停止屏幕录制
+  stopScreenRecord: (deviceId: string, fileName: string) => ipcRenderer.invoke('stop-screen-record', deviceId, fileName),
+  
+  // 获取屏幕录制状态
+  getScreenRecordStatus: () => ipcRenderer.invoke('get-screen-record-status'),
 }
 
 // 将API暴露给渲染进程
@@ -146,6 +155,9 @@ contextBridge.exposeInMainWorld('adbToolsAPI', {
   },
   getPresetCommands: () => ipcRenderer.invoke('get-preset-commands'),
   savePresetCommands: (commands: any) => ipcRenderer.invoke('save-preset-commands', commands),
+  startScreenRecord: (deviceId: string, fileName: string) => ipcRenderer.invoke('start-screen-record', deviceId, fileName),
+  stopScreenRecord: (deviceId: string, fileName: string) => ipcRenderer.invoke('stop-screen-record', deviceId, fileName),
+  getScreenRecordStatus: () => ipcRenderer.invoke('get-screen-record-status'),
 })
 
 /**

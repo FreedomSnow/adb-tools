@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Typography, Card, Button, Row, Col, message } from 'antd'
 import { CameraOutlined, VideoCameraOutlined, VideoCameraFilled, FolderOpenOutlined, LoadingOutlined } from '@ant-design/icons'
 import { useDevice } from '../contexts/DeviceContext'
@@ -17,6 +17,35 @@ const ScreenCapture: React.FC = () => {
   const [tempFileName, setTempFileName] = useState<string>('')
   const [lastRecordPath, setLastRecordPath] = useState<string>('')
   const { startRecording, stopRecording } = useScreenRecorder()
+
+  // 页面加载时同步录屏状态
+  useEffect(() => {
+    const syncRecordingStatus = async () => {
+      try {
+        const status = await window.adbToolsAPI.getScreenRecordStatus()
+        if (status.isRecording && status.deviceId) {
+          // 如果主进程显示正在录屏，但本地状态不是，则同步状态
+          if (!isRecording) {
+            setIsRecording(true)
+            // 生成一个临时文件名（因为主进程可能没有保存文件名）
+            if (!tempFileName) {
+              setTempFileName(generateScreenRecordFileName())
+            }
+          }
+        } else {
+          // 如果主进程显示没有录屏，但本地状态是，则同步状态
+          if (isRecording) {
+            setIsRecording(false)
+            setIsSaving(false)
+          }
+        }
+      } catch (error) {
+        console.error('同步录屏状态失败:', error)
+      }
+    }
+
+    syncRecordingStatus()
+  }, [isRecording, tempFileName, setIsRecording, setTempFileName, setIsSaving])
 
   const handleScreenshot = async () => {
     if (!selectedDevice) {

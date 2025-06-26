@@ -35,7 +35,8 @@ jobs:
     - name: Decode and import certificate
       if: matrix.os == 'macos-latest'
       run: |
-        echo "$MAC_CERTIFICATE" | base64 --decode > certificate.p12
+        echo "$MAC_CERTIFICATE" > certificate.p12.base64
+        base64 -D -i certificate.p12.base64 -o certificate.p12
         security create-keychain -p "" build.keychain
         security import certificate.p12 -k build.keychain -P "$MAC_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
         security list-keychains -s build.keychain

@@ -39,6 +39,9 @@ interface AdbToolsAPI {
   // 打开文件夹
   openFolder: (path: string) => Promise<void>
   
+  // 在文件夹中显示文件
+  showItemInFolder: (filePath: string) => Promise<void>
+  
   // 执行ADB命令
   execAdbCommand: (command: string) => Promise<{
     success: boolean

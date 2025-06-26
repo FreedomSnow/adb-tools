@@ -129,6 +129,7 @@ contextBridge.exposeInMainWorld('adbToolsAPI', {
   }) => ipcRenderer.invoke('show-save-dialog', options),
   openWin: (arg: string) => ipcRenderer.invoke('open-win', arg),
   openFolder: (path: string) => ipcRenderer.invoke('open-folder', path),
+  showItemInFolder: (filePath: string) => ipcRenderer.invoke('show-item-in-folder', filePath),
   execAdbCommand: (command: string) => ipcRenderer.invoke('exec-adb-command', command),
   getDevices: () => ipcRenderer.invoke('get-devices'),
   restartAdbServer: () => ipcRenderer.invoke('restart-adb-server'),

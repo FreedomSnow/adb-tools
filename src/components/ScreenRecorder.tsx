@@ -28,6 +28,7 @@ export const useScreenRecorder = () => {
     }
 
     try {
+      console.log('startRecording', selectedDevice.id, fileName)
       const result = await window.adbToolsAPI.startScreenRecord(selectedDevice.id, fileName)
       if (result.success) {
         message.success('开始录屏')
@@ -50,6 +51,7 @@ export const useScreenRecorder = () => {
 
     try {
       // 使用进程管理停止录屏
+      console.log('stopRecording', selectedDevice.id, tempFileName)
       const stopResult = await window.adbToolsAPI.stopScreenRecord(selectedDevice.id, tempFileName)
       if (!stopResult.success) {
         message.error('停止录屏失败：' + stopResult.error)

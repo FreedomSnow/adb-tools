@@ -810,10 +810,31 @@ ipcMain.handle('save-preset-commands', async (_, commands) => {
 
 // 录屏进程管理
 let screenRecordProcess: any = null
-let currentRecordingDevice: string | null = null
+
+// 录屏状态持久化相关
+const getScreenRecordStatusPath = () => {
+  const userDataPath = app.getPath('userData')
+  return path.join(userDataPath, 'screen-record-status.json')
+}
+
+async function readScreenRecordStatus() {
+  const filePath = getScreenRecordStatusPath()
+  try {
+    const data = await fs.readFile(filePath, 'utf-8')
+    return JSON.parse(data)
+  } catch {
+    return { isRecording: false, deviceId: null }
+  }
+}
+
+async function writeScreenRecordStatus(status: { isRecording: boolean, deviceId: string | null }) {
+  const filePath = getScreenRecordStatusPath()
+  await fs.writeFile(filePath, JSON.stringify(status, null, 2))
+}
 
 // 启动录屏
 ipcMain.handle('start-screen-record', async (_, deviceId: string, fileName: string) => {
+  safeLog('start-screen-record', deviceId, fileName)
   try {
     const adbPath = app.isPackaged
       ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
@@ -823,6 +844,7 @@ ipcMain.handle('start-screen-record', async (_, deviceId: string, fileName: stri
     if (screenRecordProcess) {
       screenRecordProcess.kill('SIGINT')
       screenRecordProcess = null
+      await writeScreenRecordStatus({ isRecording: false, deviceId: null })
     }
     
     // 启动录屏进程
@@ -834,7 +856,7 @@ ipcMain.handle('start-screen-record', async (_, deviceId: string, fileName: stri
       stdio: ['pipe', 'pipe', 'pipe']
     })
     
-    currentRecordingDevice = deviceId
+    await writeScreenRecordStatus({ isRecording: true, deviceId })
     
     // 监听进程输出
     screenRecordProcess.stdout?.on('data', (data: Buffer) => {
@@ -846,21 +868,22 @@ ipcMain.handle('start-screen-record', async (_, deviceId: string, fileName: stri
     })
     
     // 监听进程退出
-    screenRecordProcess.on('close', (code: number) => {
+    screenRecordProcess.on('close', async (code: number) => {
       safeLog('录屏进程退出，代码:', code)
       screenRecordProcess = null
-      currentRecordingDevice = null
+      await writeScreenRecordStatus({ isRecording: false, deviceId: null })
     })
     
-    screenRecordProcess.on('error', (error: Error) => {
+    screenRecordProcess.on('error', async (error: Error) => {
       safeErrorLog('录屏进程错误:', error)
       screenRecordProcess = null
-      currentRecordingDevice = null
+      await writeScreenRecordStatus({ isRecording: false, deviceId: null })
     })
     
-    return { success: true, data: '录屏已启动' }
+    return { success: true, data: '录屏已启动, 当前录屏设备: ' + deviceId + ', 当前录屏文件: ' + fileName + ', 当前录屏进程: ' + screenRecordProcess }
   } catch (error: any) {
     safeErrorLog('启动录屏失败:', error)
+    await writeScreenRecordStatus({ isRecording: false, deviceId: null })
     return { success: false, error: error.message }
   }
 })
@@ -868,10 +891,24 @@ ipcMain.handle('start-screen-record', async (_, deviceId: string, fileName: stri
 // 停止录屏
 ipcMain.handle('stop-screen-record', async (_, deviceId: string, fileName: string) => {
   try {
-    if (!screenRecordProcess || currentRecordingDevice !== deviceId) {
-      return { success: false, error: '没有找到对应的录屏进程' }
+    safeLog('stop-screen-record', deviceId, fileName)
+    const status = await readScreenRecordStatus()
+    if (!screenRecordProcess) {
+      if (status.deviceId !== deviceId) {
+        return { success: false, error: '没有找到对应的录屏进程, 当前录屏进程: ' + screenRecordProcess + ', 当前录屏设备: ' + status.deviceId + ', 目标设备: ' + deviceId }
+      } else {
+        const adbPath = app.isPackaged
+          ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+          : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+          
+          // 变量丢失时，尝试强制杀掉设备端进程
+          safeLog('未找到本地录屏进程，尝试强制终止设备端进程')
+          await execAsync(`"${adbPath}" -s ${deviceId} shell pkill -INT screenrecord`)
+          await writeScreenRecordStatus({ isRecording: false, deviceId: null })
+          return { success: true, data: '已尝试强制终止设备端录屏进程' }
+      }
     }
-    
+
     safeLog('停止录屏进程...')
     
     // 发送 SIGINT 信号（相当于 Ctrl+C）
@@ -892,7 +929,7 @@ ipcMain.handle('stop-screen-record', async (_, deviceId: string, fileName: strin
     })
     
     screenRecordProcess = null
-    currentRecordingDevice = null
+    await writeScreenRecordStatus({ isRecording: false, deviceId: null })
     
     // 等待文件写入完成
     await new Promise(resolve => setTimeout(resolve, 1000))
@@ -900,14 +937,12 @@ ipcMain.handle('stop-screen-record', async (_, deviceId: string, fileName: strin
     return { success: true, data: '录屏已停止' }
   } catch (error: any) {
     safeErrorLog('停止录屏失败:', error)
+    await writeScreenRecordStatus({ isRecording: false, deviceId: null })
     return { success: false, error: error.message }
   }
 })
 
 // 获取录屏状态
-ipcMain.handle('get-screen-record-status', () => {
-  return {
-    isRecording: screenRecordProcess !== null,
-    deviceId: currentRecordingDevice
-  }
+ipcMain.handle('get-screen-record-status', async () => {
+  return await readScreenRecordStatus()
 }) 

@@ -422,12 +422,62 @@ function selectQueue(command: string): ADBCommandQueue {
   return normalQueue
 }
 
-// IPC handlers for ADB operations
-ipcMain.handle('get-adb-path', () => {
-  // 获取打包后的ADB路径
-  const adbPath = app.isPackaged
+// 获取ADB路径的健壮函数
+function getAdbPath(): string {
+  let adbPath = app.isPackaged
     ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
     : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+  
+  // 验证路径是否存在
+  const fs = require('fs')
+  if (fs.existsSync(adbPath)) {
+    return adbPath
+  }
+  
+  // 如果主要路径不存在，尝试备用路径
+  safeLog('主要ADB路径不存在，尝试备用路径:', adbPath)
+  
+  // 备用路径1: 相对于应用目录
+  const altPath1 = path.join(path.dirname(process.execPath), '..', 'Resources', 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+  if (fs.existsSync(altPath1)) {
+    safeLog('找到备用路径1:', altPath1)
+    return altPath1
+  }
+  
+  // 备用路径2: 相对于当前工作目录
+  const altPath2 = path.join(process.cwd(), 'resources', 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+  if (fs.existsSync(altPath2)) {
+    safeLog('找到备用路径2:', altPath2)
+    return altPath2
+  }
+  
+  // 备用路径3: 相对于__dirname
+  const altPath3 = path.join(__dirname, '..', '..', 'resources', 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+  if (fs.existsSync(altPath3)) {
+    safeLog('找到备用路径3:', altPath3)
+    return altPath3
+  }
+  
+  safeErrorLog('所有ADB路径都不存在:', { adbPath, altPath1, altPath2, altPath3 })
+  return adbPath // 返回原始路径，让调用方处理错误
+}
+
+// IPC handlers for ADB operations
+ipcMain.handle('get-adb-path', () => {
+  const adbPath = getAdbPath()
+  
+  // 添加详细的路径信息用于调试
+  const debugInfo = {
+    adbPath,
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    __dirname,
+    platform: process.platform,
+    cwd: process.cwd(),
+    execPath: process.execPath
+  }
+  
+  safeLog('get-adb-path 调试信息:', debugInfo)
   
   return adbPath
 })
@@ -440,9 +490,7 @@ ipcMain.handle('exec-adb-command', async (_, command: string) => {
   
   return selectedQueue.add(async () => {
     try {
-      const adbPath = app.isPackaged
-        ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-        : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+      const adbPath = getAdbPath()
       
       // 处理命令：如果命令以 "adb" 开头，去掉 "adb" 前缀
       let processedCommand = command.trim()
@@ -512,9 +560,7 @@ ipcMain.handle('exec-adb-command', async (_, command: string) => {
 // 重启ADB服务器
 ipcMain.handle('restart-adb-server', async () => {
   try {
-    const adbPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-      : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+    const adbPath = getAdbPath()
     
     safeLog('正在重启ADB服务器...')
     
@@ -555,9 +601,7 @@ ipcMain.handle('get-devices', async () => {
   safeLog('设备列表获取使用快速队列')
   return fastQueue.add(async () => {
     try {
-      const adbPath = app.isPackaged
-        ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-        : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+      const adbPath = getAdbPath()
       
       const fullCommand = `"${adbPath}" devices -l`
       safeLog('执行命令:', fullCommand)
@@ -621,9 +665,7 @@ ipcMain.handle('get-queue-status', () => {
 // 安装APK
 ipcMain.handle('install-apk', async (_, fileData: Buffer | Uint8Array, fileName: string, deviceId: string, installOptions?: string) => {
   try {
-    const adbPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-      : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+    const adbPath = getAdbPath()
     
     // 在主进程中创建临时文件
     const fs = require('fs')
@@ -688,9 +730,7 @@ ipcMain.handle('install-apk', async (_, fileData: Buffer | Uint8Array, fileName:
 // 获取已安装的应用列表
 ipcMain.handle('get-installed-apps', async (_, deviceId: string) => {
   try {
-    const adbPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-      : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+    const adbPath = getAdbPath()
     
     const command = `"${adbPath}" -s ${deviceId} shell pm list packages -f`
     const { stdout } = await execAsync(command)
@@ -728,9 +768,7 @@ ipcMain.handle('get-installed-apps', async (_, deviceId: string) => {
 // 卸载应用
 ipcMain.handle('uninstall-app', async (_, deviceId: string, packageName: string) => {
   try {
-    const adbPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-      : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+    const adbPath = getAdbPath()
     
     const command = `"${adbPath}" -s ${deviceId} shell pm uninstall ${packageName}`
     safeLog('卸载应用命令:', command)
@@ -884,9 +922,16 @@ async function writeScreenRecordStatus(status: { isRecording: boolean, deviceId:
 ipcMain.handle('start-screen-record', async (_, deviceId: string, fileName: string) => {
   safeLog('start-screen-record', deviceId, fileName)
   try {
-    const adbPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-      : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+    const adbPath = getAdbPath()
+    
+    // 验证ADB路径是否存在
+    const fs = require('fs')
+    if (!fs.existsSync(adbPath)) {
+      safeErrorLog('ADB路径不存在:', adbPath)
+      throw new Error(`ADB路径不存在: ${adbPath}`)
+    }
+    
+    safeLog('ADB路径验证成功:', adbPath)
     
     // 如果已有录屏进程在运行，先停止
     if (screenRecordProcess) {
@@ -896,12 +941,14 @@ ipcMain.handle('start-screen-record', async (_, deviceId: string, fileName: stri
       await writeScreenRecordStatus({ isRecording: false, deviceId: null })
     }
     
-    // 启动录屏进程
-    const command = `${adbPath} -s ${deviceId} shell screenrecord /sdcard/${fileName}`
+    // 启动录屏进程 - 使用spawn但正确处理路径
+    const command = `"${adbPath}" -s ${deviceId} shell screenrecord /sdcard/${fileName}`
     safeLog('启动录屏命令:', command)
     
-    screenRecordProcess = spawn(command, [], {
-      shell: true,
+    // 使用spawn但传递参数数组而不是字符串，避免路径解析问题
+    const args = ['-s', deviceId, 'shell', 'screenrecord', `/sdcard/${fileName}`]
+    safeLog('spawn参数:', { adbPath, args })
+    screenRecordProcess = spawn(adbPath, args, {
       stdio: ['pipe', 'pipe', 'pipe']
     })
     
@@ -949,13 +996,13 @@ ipcMain.handle('stop-screen-record', async (_, deviceId: string, fileName: strin
       if (status.deviceId !== deviceId) {
         return { success: false, error: '没有找到对应的录屏进程, 当前录屏进程: ' + screenRecordProcess + ', 当前录屏设备: ' + status.deviceId + ', 目标设备: ' + deviceId }
       } else {
-        const adbPath = app.isPackaged
-          ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-          : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+        const adbPath = getAdbPath()
           
           // 变量丢失时，尝试强制杀掉设备端进程
           safeLog('writeScreenRecordStatus, 未找到本地录屏进程，尝试强制终止设备端进程')
-          await execAsync(`"${adbPath}" -s ${deviceId} shell pkill -INT screenrecord`)
+          const killCommand = `"${adbPath}" -s ${deviceId} shell pkill -INT screenrecord`
+          safeLog('强制终止设备端进程命令:', killCommand)
+          await execAsync(killCommand)
           console.log('writeScreenRecordStatus, 未找到本地录屏进程，尝试强制终止设备端进程')
           await writeScreenRecordStatus({ isRecording: false, deviceId: null })
           return { success: true, data: '已尝试强制终止设备端录屏进程' }

@@ -511,48 +511,139 @@ ipcMain.handle('exec-adb-command', async (_, command: string) => {
         maxBuffer: 1024 * 1024 * 10 // 10MB buffer
       })
     
-    // 改进错误检测逻辑
-    const isShellCommand = command.includes('shell')
-    const isMonkeyCommand = command.includes('monkey')
-    
-    // 对于shell命令，特别是monkey命令，需要更宽松的错误检测
-    if (stderr) {
-      // 忽略常见的警告和调试信息
-      const ignorablePatterns = [
-        'Warning',
-        'args:',
-        'arg:',
-        'data=',
-        'Events injected:',
-        'Network speed:',
-        'Dropped:'
-      ]
+      // 改进错误检测逻辑
+      const isShellCommand = command.includes('shell')
+      const isMonkeyCommand = command.includes('monkey')
+      const isPullCommand = command.includes('pull')
       
-      const shouldIgnoreStderr = ignorablePatterns.some(pattern => 
-        stderr.includes(pattern)
-      )
-      
-      // 对于monkey命令，如果stderr包含调试信息但没有明确错误，认为成功
-      if (isMonkeyCommand && shouldIgnoreStderr && !stderr.includes('Error:') && !stderr.includes('CRASH')) {
-        safeLog('Monkey命令输出调试信息，但执行成功')
-        return { success: true, data: stdout.trim() || 'Command executed successfully' }
+      // 对于pull命令的特殊处理
+      if (isPullCommand) {
+        // pull命令成功时通常输出 "1 file pulled" 或类似信息
+        const successPatterns = [
+          '1 file pulled',
+          'files pulled',
+          'file pulled'
+        ]
+        
+        const hasSuccessOutput = successPatterns.some(pattern => 
+          stdout.includes(pattern) || stderr.includes(pattern)
+        )
+        
+        if (hasSuccessOutput) {
+          safeLog('Pull命令执行成功')
+          return { success: true, data: stdout.trim() || stderr.trim() }
+        } else {
+          // 检查是否有明确的错误信息
+          const errorPatterns = [
+            'error',
+            'failed',
+            'not found',
+            'permission denied',
+            'no such file'
+          ]
+          
+          const hasErrorOutput = errorPatterns.some(pattern => 
+            (stderr && stderr.toLowerCase().includes(pattern)) ||
+            (stdout && stdout.toLowerCase().includes(pattern))
+          )
+          
+          if (hasErrorOutput) {
+            const errorMsg = stderr || stdout || 'Pull命令执行失败'
+            safeErrorLog('Pull命令执行失败:', errorMsg)
+            return { success: false, error: errorMsg }
+          }
+          
+          // 如果没有明确的成功或失败信息，检查文件是否存在
+          try {
+            // 从pull命令中提取目标路径
+            const pathMatch = command.match(/pull\s+([^\s]+)\s+"([^"]+)"/)
+            if (pathMatch) {
+              const devicePath = pathMatch[1]
+              const localPath = pathMatch[2]
+              
+              // 检查本地文件是否存在
+              const fs = require('fs')
+              if (fs.existsSync(localPath)) {
+                const stats = fs.statSync(localPath)
+                if (stats.size > 0) {
+                  safeLog('Pull命令可能成功，本地文件存在且非空')
+                  return { success: true, data: stdout.trim() || stderr.trim() || 'File pulled successfully' }
+                }
+              }
+            }
+          } catch (checkError) {
+            safeLog('检查文件存在性时出错:', checkError)
+          }
+          
+          // 默认认为失败
+          const errorMsg = stderr || stdout || 'Pull命令执行失败，未检测到成功输出'
+          safeErrorLog('Pull命令执行失败:', errorMsg)
+          return { success: false, error: errorMsg }
+        }
       }
       
-      // 对于其他shell命令，只有明确的错误才认为失败
-      if (isShellCommand && shouldIgnoreStderr) {
-        return { success: true, data: stdout.trim() }
+      // 对于shell命令，特别是monkey命令，需要更宽松的错误检测
+      if (stderr) {
+        // 忽略常见的警告和调试信息
+        const ignorablePatterns = [
+          'Warning',
+          'args:',
+          'arg:',
+          'data=',
+          'Events injected:',
+          'Network speed:',
+          'Dropped:'
+        ]
+        
+        const shouldIgnoreStderr = ignorablePatterns.some(pattern => 
+          stderr.includes(pattern)
+        )
+        
+        // 对于monkey命令，如果stderr包含调试信息但没有明确错误，认为成功
+        if (isMonkeyCommand && shouldIgnoreStderr && !stderr.includes('Error:') && !stderr.includes('CRASH')) {
+          safeLog('Monkey命令输出调试信息，但执行成功')
+          return { success: true, data: stdout.trim() || 'Command executed successfully' }
+        }
+        
+        // 对于其他shell命令，只有明确的错误才认为失败
+        if (isShellCommand && shouldIgnoreStderr) {
+          return { success: true, data: stdout.trim() }
+        }
+        
+        // 如果是真正的错误
+        if (!shouldIgnoreStderr) {
+          throw new Error(stderr)
+        }
       }
-      
-      // 如果是真正的错误
-      if (!shouldIgnoreStderr) {
-        throw new Error(stderr)
-      }
-    }
     
       return { success: true, data: stdout.trim() }
     } catch (error: any) {
-      safeErrorLog('exec-adb-command， ADB命令执行失败:', error)
-      return { success: false, error: error.message }
+      // 改进错误信息处理
+      let errorMessage = '未知错误'
+      
+      if (error && typeof error === 'object') {
+        if (error.message) {
+          errorMessage = error.message
+        } else if (error.stderr) {
+          errorMessage = error.stderr
+        } else if (error.stdout) {
+          errorMessage = error.stdout
+        } else if (error.code) {
+          errorMessage = `错误代码: ${error.code}`
+        } else {
+          // 尝试序列化错误对象
+          try {
+            errorMessage = JSON.stringify(error)
+          } catch {
+            errorMessage = error.toString()
+          }
+        }
+      } else if (error) {
+        errorMessage = String(error)
+      }
+      
+      safeErrorLog('exec-adb-command， ADB命令执行失败:', errorMessage)
+      return { success: false, error: errorMessage }
     }
   })
 })
@@ -1033,7 +1124,24 @@ ipcMain.handle('stop-screen-record', async (_, deviceId: string, fileName: strin
     await writeScreenRecordStatus({ isRecording: false, deviceId: null })
     
     // 等待文件写入完成
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    
+    // 检查设备上的文件是否存在
+    try {
+      const adbPath = getAdbPath()
+      const checkCommand = `"${adbPath}" -s ${deviceId} shell ls -la /sdcard/${fileName}`
+      const checkResult = await execAsync(checkCommand, { timeout: 10000 })
+      
+      if (checkResult.stdout.includes('No such file') || checkResult.stdout.includes('not found')) {
+        safeLog('录屏文件不存在，可能录屏时间太短')
+        return { success: true, data: '录屏已停止，但文件可能未生成（录屏时间太短）' }
+      }
+      
+      safeLog('录屏文件存在，可以继续拉取')
+    } catch (checkError) {
+      safeLog('检查录屏文件存在性时出错:', checkError)
+      // 即使检查失败，也认为停止成功
+    }
     
     return { success: true, data: '录屏已停止' }
   } catch (error: any) {

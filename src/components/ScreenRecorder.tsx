@@ -58,6 +58,19 @@ export const useScreenRecorder = () => {
         return ''
       }
       
+      // 等待一段时间确保文件写入完成
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      // 先检查设备上的文件是否存在
+      const checkFileResult = await window.adbToolsAPI.execAdbCommand(
+        `-s ${selectedDevice.id} shell ls -la /sdcard/${tempFileName}`
+      )
+      
+      if (!checkFileResult.success || (checkFileResult.data && checkFileResult.data.includes('No such file'))) {
+        message.error('录屏文件不存在，可能录屏时间太短或文件写入失败')
+        return ''
+      }
+      
       // 获取保存路径
       const saveResult = await window.adbToolsAPI.showSaveDialog({
         title: '保存录屏文件',
@@ -81,17 +94,50 @@ export const useScreenRecorder = () => {
         `-s ${selectedDevice.id} pull /sdcard/${tempFileName} "${saveResult.filePath}"`
       )
       
-      if (pullResult.success 
-          || pullResult.data?.includes('1 file pulled')
-          || pullResult.error?.includes('1 file pulled')) {
+      console.log('Pull结果:', pullResult)
+      
+      // 改进成功检测逻辑
+      const isSuccess = pullResult.success || 
+                       pullResult.data?.includes('1 file pulled') ||
+                       pullResult.data?.includes('files pulled') ||
+                       pullResult.error?.includes('1 file pulled') ||
+                       pullResult.error?.includes('files pulled')
+      
+      if (isSuccess) {
         message.success('录屏文件已保存')
         // 删除设备上的临时文件
-        await window.adbToolsAPI.execAdbCommand(
-          `-s ${selectedDevice.id} shell rm /sdcard/${tempFileName}`
-        )
+        try {
+          await window.adbToolsAPI.execAdbCommand(
+            `-s ${selectedDevice.id} shell rm /sdcard/${tempFileName}`
+          )
+        } catch (cleanupError) {
+          console.warn('清理设备临时文件失败:', cleanupError)
+        }
         return filePath
       } else {
-        message.error('保存录屏文件失败：' + pullResult.error)
+        // 检查本地文件是否实际存在
+        try {
+          const fs = require('fs')
+          if (fs.existsSync(filePath)) {
+            const stats = fs.statSync(filePath)
+            if (stats.size > 0) {
+              message.success('录屏文件已保存（文件存在且非空）')
+              // 删除设备上的临时文件
+              try {
+                await window.adbToolsAPI.execAdbCommand(
+                  `-s ${selectedDevice.id} shell rm /sdcard/${tempFileName}`
+                )
+              } catch (cleanupError) {
+                console.warn('清理设备临时文件失败:', cleanupError)
+              }
+              return filePath
+            }
+          }
+        } catch (fileCheckError) {
+          console.warn('检查本地文件失败:', fileCheckError)
+        }
+        
+        message.error('保存录屏文件失败：' + (pullResult.error || '未知错误'))
         return ''
       }
     } catch (error: any) {

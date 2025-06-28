@@ -814,7 +814,19 @@ let screenRecordProcess: any = null
 // 录屏状态持久化相关
 const getScreenRecordStatusPath = () => {
   const userDataPath = app.getPath('userData')
-  return path.join(userDataPath, 'screen-record-status.json')
+  const screenRecordDir = path.join(userDataPath, 'screen-record')
+  
+  // 确保录屏文件夹存在
+  try {
+    const fs = require('fs')
+    if (!fs.existsSync(screenRecordDir)) {
+      fs.mkdirSync(screenRecordDir, { recursive: true })
+    }
+  } catch (error) {
+    safeErrorLog('创建录屏文件夹失败:', error)
+  }
+  
+  return path.join(screenRecordDir, 'status.json')
 }
 
 async function readScreenRecordStatus() {

@@ -99,6 +99,14 @@ interface AdbToolsAPI {
   // 监听主进程消息
   onMainProcessMessage: (callback: (message: string) => void) => void
   
+  // 监听主进程日志
+  onMainProcessLog: (callback: (logData: {
+    type: 'log' | 'error'
+    message: string
+    args: string[]
+    timestamp: string
+  }) => void) => void
+  
   // 移除监听器
   removeAllListeners: (channel: string) => void
   

@@ -21,6 +21,7 @@ const ScreenCapture: React.FC = () => {
   // 页面加载时同步录屏状态
   useEffect(() => {
     const syncRecordingStatus = async () => {
+      console.log('syncRecordingStatus', isRecording)
       try {
         const status = await window.adbToolsAPI.getScreenRecordStatus()
         if (status.isRecording && status.deviceId) {

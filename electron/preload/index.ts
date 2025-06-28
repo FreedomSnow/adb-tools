@@ -101,6 +101,16 @@ const adbToolsAPI = {
     ipcRenderer.on('main-process-message', (_, message) => callback(message))
   },
   
+  // 监听主进程日志
+  onMainProcessLog: (callback: (logData: {
+    type: 'log' | 'error'
+    message: string
+    args: string[]
+    timestamp: string
+  }) => void) => {
+    ipcRenderer.on('main-process-log', (_, logData) => callback(logData))
+  },
+  
   // 移除监听器
   removeAllListeners: (channel: string) => {
     ipcRenderer.removeAllListeners(channel)
@@ -149,6 +159,14 @@ contextBridge.exposeInMainWorld('adbToolsAPI', {
   uninstallApp: (deviceId: string, packageName: string) => ipcRenderer.invoke('uninstall-app', deviceId, packageName),
   onMainProcessMessage: (callback: (message: string) => void) => {
     ipcRenderer.on('main-process-message', (_, message) => callback(message))
+  },
+  onMainProcessLog: (callback: (logData: {
+    type: 'log' | 'error'
+    message: string
+    args: string[]
+    timestamp: string
+  }) => void) => {
+    ipcRenderer.on('main-process-log', (_, logData) => callback(logData))
   },
   removeAllListeners: (channel: string) => {
     ipcRenderer.removeAllListeners(channel)

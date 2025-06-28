@@ -32,6 +32,23 @@ const safeLog = (message: string, ...args: any[]) => {
       // 如果文件写入也失败，静默处理
     }
   }
+  
+  // 发送日志到渲染进程，这样在release包中也能在开发者工具中看到
+  try {
+    if (win && !win.isDestroyed()) {
+      const logData = {
+        type: 'log',
+        message,
+        args: args.map(arg => 
+          typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+        ),
+        timestamp: new Date().toISOString()
+      }
+      win.webContents.send('main-process-log', logData)
+    }
+  } catch (ipcError) {
+    // IPC发送失败时静默处理
+  }
 }
 
 // 安全的错误日志函数
@@ -52,6 +69,23 @@ const safeErrorLog = (message: string, ...args: any[]) => {
     } catch (fileError) {
       // 静默处理
     }
+  }
+  
+  // 发送错误日志到渲染进程
+  try {
+    if (win && !win.isDestroyed()) {
+      const logData = {
+        type: 'error',
+        message,
+        args: args.map(arg => 
+          typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+        ),
+        timestamp: new Date().toISOString()
+      }
+      win.webContents.send('main-process-log', logData)
+    }
+  } catch (ipcError) {
+    // IPC发送失败时静默处理
   }
 }
 
@@ -388,12 +422,62 @@ function selectQueue(command: string): ADBCommandQueue {
   return normalQueue
 }
 
-// IPC handlers for ADB operations
-ipcMain.handle('get-adb-path', () => {
-  // 获取打包后的ADB路径
-  const adbPath = app.isPackaged
+// 获取ADB路径的健壮函数
+function getAdbPath(): string {
+  let adbPath = app.isPackaged
     ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
     : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+  
+  // 验证路径是否存在
+  const fs = require('fs')
+  if (fs.existsSync(adbPath)) {
+    return adbPath
+  }
+  
+  // 如果主要路径不存在，尝试备用路径
+  safeLog('主要ADB路径不存在，尝试备用路径:', adbPath)
+  
+  // 备用路径1: 相对于应用目录
+  const altPath1 = path.join(path.dirname(process.execPath), '..', 'Resources', 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+  if (fs.existsSync(altPath1)) {
+    safeLog('找到备用路径1:', altPath1)
+    return altPath1
+  }
+  
+  // 备用路径2: 相对于当前工作目录
+  const altPath2 = path.join(process.cwd(), 'resources', 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+  if (fs.existsSync(altPath2)) {
+    safeLog('找到备用路径2:', altPath2)
+    return altPath2
+  }
+  
+  // 备用路径3: 相对于__dirname
+  const altPath3 = path.join(__dirname, '..', '..', 'resources', 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+  if (fs.existsSync(altPath3)) {
+    safeLog('找到备用路径3:', altPath3)
+    return altPath3
+  }
+  
+  safeErrorLog('所有ADB路径都不存在:', { adbPath, altPath1, altPath2, altPath3 })
+  return adbPath // 返回原始路径，让调用方处理错误
+}
+
+// IPC handlers for ADB operations
+ipcMain.handle('get-adb-path', () => {
+  const adbPath = getAdbPath()
+  
+  // 添加详细的路径信息用于调试
+  const debugInfo = {
+    adbPath,
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    __dirname,
+    platform: process.platform,
+    cwd: process.cwd(),
+    execPath: process.execPath
+  }
+  
+  safeLog('get-adb-path 调试信息:', debugInfo)
   
   return adbPath
 })
@@ -406,9 +490,7 @@ ipcMain.handle('exec-adb-command', async (_, command: string) => {
   
   return selectedQueue.add(async () => {
     try {
-      const adbPath = app.isPackaged
-        ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-        : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+      const adbPath = getAdbPath()
       
       // 处理命令：如果命令以 "adb" 开头，去掉 "adb" 前缀
       let processedCommand = command.trim()
@@ -429,48 +511,139 @@ ipcMain.handle('exec-adb-command', async (_, command: string) => {
         maxBuffer: 1024 * 1024 * 10 // 10MB buffer
       })
     
-    // 改进错误检测逻辑
-    const isShellCommand = command.includes('shell')
-    const isMonkeyCommand = command.includes('monkey')
-    
-    // 对于shell命令，特别是monkey命令，需要更宽松的错误检测
-    if (stderr) {
-      // 忽略常见的警告和调试信息
-      const ignorablePatterns = [
-        'Warning',
-        'args:',
-        'arg:',
-        'data=',
-        'Events injected:',
-        'Network speed:',
-        'Dropped:'
-      ]
+      // 改进错误检测逻辑
+      const isShellCommand = command.includes('shell')
+      const isMonkeyCommand = command.includes('monkey')
+      const isPullCommand = command.includes('pull')
       
-      const shouldIgnoreStderr = ignorablePatterns.some(pattern => 
-        stderr.includes(pattern)
-      )
-      
-      // 对于monkey命令，如果stderr包含调试信息但没有明确错误，认为成功
-      if (isMonkeyCommand && shouldIgnoreStderr && !stderr.includes('Error:') && !stderr.includes('CRASH')) {
-        safeLog('Monkey命令输出调试信息，但执行成功')
-        return { success: true, data: stdout.trim() || 'Command executed successfully' }
+      // 对于pull命令的特殊处理
+      if (isPullCommand) {
+        // pull命令成功时通常输出 "1 file pulled" 或类似信息
+        const successPatterns = [
+          '1 file pulled',
+          'files pulled',
+          'file pulled'
+        ]
+        
+        const hasSuccessOutput = successPatterns.some(pattern => 
+          stdout.includes(pattern) || stderr.includes(pattern)
+        )
+        
+        if (hasSuccessOutput) {
+          safeLog('Pull命令执行成功')
+          return { success: true, data: stdout.trim() || stderr.trim() }
+        } else {
+          // 检查是否有明确的错误信息
+          const errorPatterns = [
+            'error',
+            'failed',
+            'not found',
+            'permission denied',
+            'no such file'
+          ]
+          
+          const hasErrorOutput = errorPatterns.some(pattern => 
+            (stderr && stderr.toLowerCase().includes(pattern)) ||
+            (stdout && stdout.toLowerCase().includes(pattern))
+          )
+          
+          if (hasErrorOutput) {
+            const errorMsg = stderr || stdout || 'Pull命令执行失败'
+            safeErrorLog('Pull命令执行失败:', errorMsg)
+            return { success: false, error: errorMsg }
+          }
+          
+          // 如果没有明确的成功或失败信息，检查文件是否存在
+          try {
+            // 从pull命令中提取目标路径
+            const pathMatch = command.match(/pull\s+([^\s]+)\s+"([^"]+)"/)
+            if (pathMatch) {
+              const devicePath = pathMatch[1]
+              const localPath = pathMatch[2]
+              
+              // 检查本地文件是否存在
+              const fs = require('fs')
+              if (fs.existsSync(localPath)) {
+                const stats = fs.statSync(localPath)
+                if (stats.size > 0) {
+                  safeLog('Pull命令可能成功，本地文件存在且非空')
+                  return { success: true, data: stdout.trim() || stderr.trim() || 'File pulled successfully' }
+                }
+              }
+            }
+          } catch (checkError) {
+            safeLog('检查文件存在性时出错:', checkError)
+          }
+          
+          // 默认认为失败
+          const errorMsg = stderr || stdout || 'Pull命令执行失败，未检测到成功输出'
+          safeErrorLog('Pull命令执行失败:', errorMsg)
+          return { success: false, error: errorMsg }
+        }
       }
       
-      // 对于其他shell命令，只有明确的错误才认为失败
-      if (isShellCommand && shouldIgnoreStderr) {
-        return { success: true, data: stdout.trim() }
+      // 对于shell命令，特别是monkey命令，需要更宽松的错误检测
+      if (stderr) {
+        // 忽略常见的警告和调试信息
+        const ignorablePatterns = [
+          'Warning',
+          'args:',
+          'arg:',
+          'data=',
+          'Events injected:',
+          'Network speed:',
+          'Dropped:'
+        ]
+        
+        const shouldIgnoreStderr = ignorablePatterns.some(pattern => 
+          stderr.includes(pattern)
+        )
+        
+        // 对于monkey命令，如果stderr包含调试信息但没有明确错误，认为成功
+        if (isMonkeyCommand && shouldIgnoreStderr && !stderr.includes('Error:') && !stderr.includes('CRASH')) {
+          safeLog('Monkey命令输出调试信息，但执行成功')
+          return { success: true, data: stdout.trim() || 'Command executed successfully' }
+        }
+        
+        // 对于其他shell命令，只有明确的错误才认为失败
+        if (isShellCommand && shouldIgnoreStderr) {
+          return { success: true, data: stdout.trim() }
+        }
+        
+        // 如果是真正的错误
+        if (!shouldIgnoreStderr) {
+          throw new Error(stderr)
+        }
       }
-      
-      // 如果是真正的错误
-      if (!shouldIgnoreStderr) {
-        throw new Error(stderr)
-      }
-    }
     
       return { success: true, data: stdout.trim() }
     } catch (error: any) {
-      safeErrorLog('ADB命令执行失败:', error)
-      return { success: false, error: error.message }
+      // 改进错误信息处理
+      let errorMessage = '未知错误'
+      
+      if (error && typeof error === 'object') {
+        if (error.message) {
+          errorMessage = error.message
+        } else if (error.stderr) {
+          errorMessage = error.stderr
+        } else if (error.stdout) {
+          errorMessage = error.stdout
+        } else if (error.code) {
+          errorMessage = `错误代码: ${error.code}`
+        } else {
+          // 尝试序列化错误对象
+          try {
+            errorMessage = JSON.stringify(error)
+          } catch {
+            errorMessage = error.toString()
+          }
+        }
+      } else if (error) {
+        errorMessage = String(error)
+      }
+      
+      safeErrorLog('exec-adb-command， ADB命令执行失败:', errorMessage)
+      return { success: false, error: errorMessage }
     }
   })
 })
@@ -478,9 +651,7 @@ ipcMain.handle('exec-adb-command', async (_, command: string) => {
 // 重启ADB服务器
 ipcMain.handle('restart-adb-server', async () => {
   try {
-    const adbPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-      : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+    const adbPath = getAdbPath()
     
     safeLog('正在重启ADB服务器...')
     
@@ -521,9 +692,7 @@ ipcMain.handle('get-devices', async () => {
   safeLog('设备列表获取使用快速队列')
   return fastQueue.add(async () => {
     try {
-      const adbPath = app.isPackaged
-        ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-        : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+      const adbPath = getAdbPath()
       
       const fullCommand = `"${adbPath}" devices -l`
       safeLog('执行命令:', fullCommand)
@@ -564,7 +733,7 @@ ipcMain.handle('get-devices', async () => {
       
       return { success: true, data: stdout.trim() }
     } catch (error: any) {
-      safeErrorLog('ADB命令执行失败:', error)
+      safeErrorLog('get-devices， ADB命令执行失败:', error)
       return { success: false, error: error.message }
     }
   })
@@ -587,9 +756,7 @@ ipcMain.handle('get-queue-status', () => {
 // 安装APK
 ipcMain.handle('install-apk', async (_, fileData: Buffer | Uint8Array, fileName: string, deviceId: string, installOptions?: string) => {
   try {
-    const adbPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-      : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+    const adbPath = getAdbPath()
     
     // 在主进程中创建临时文件
     const fs = require('fs')
@@ -654,9 +821,7 @@ ipcMain.handle('install-apk', async (_, fileData: Buffer | Uint8Array, fileName:
 // 获取已安装的应用列表
 ipcMain.handle('get-installed-apps', async (_, deviceId: string) => {
   try {
-    const adbPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-      : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+    const adbPath = getAdbPath()
     
     const command = `"${adbPath}" -s ${deviceId} shell pm list packages -f`
     const { stdout } = await execAsync(command)
@@ -694,9 +859,7 @@ ipcMain.handle('get-installed-apps', async (_, deviceId: string) => {
 // 卸载应用
 ipcMain.handle('uninstall-app', async (_, deviceId: string, packageName: string) => {
   try {
-    const adbPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-      : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+    const adbPath = getAdbPath()
     
     const command = `"${adbPath}" -s ${deviceId} shell pm uninstall ${packageName}`
     safeLog('卸载应用命令:', command)
@@ -810,31 +973,78 @@ ipcMain.handle('save-preset-commands', async (_, commands) => {
 
 // 录屏进程管理
 let screenRecordProcess: any = null
-let currentRecordingDevice: string | null = null
+
+// 录屏状态持久化相关
+const getScreenRecordStatusPath = () => {
+  const userDataPath = app.getPath('userData')
+  const screenRecordDir = path.join(userDataPath, 'screen-record')
+  
+  // 确保录屏文件夹存在
+  try {
+    const fs = require('fs')
+    if (!fs.existsSync(screenRecordDir)) {
+      fs.mkdirSync(screenRecordDir, { recursive: true })
+    }
+  } catch (error) {
+    safeErrorLog('创建录屏文件夹失败:', error)
+  }
+  
+  return path.join(screenRecordDir, 'status.json')
+}
+
+async function readScreenRecordStatus() {
+  const filePath = getScreenRecordStatusPath()
+  try {
+    const data = await fs.readFile(filePath, 'utf-8')
+    return JSON.parse(data)
+  } catch {
+    return { isRecording: false, deviceId: null }
+  }
+}
+
+async function writeScreenRecordStatus(status: { isRecording: boolean, deviceId: string | null }) {
+  safeLog('writeScreenRecordStatus, 写入录屏状态, status:', status)
+  console.log('writeScreenRecordStatus, 写入录屏状态, status:', status)
+  const filePath = getScreenRecordStatusPath()
+  await fs.writeFile(filePath, JSON.stringify(status, null, 2))
+}
 
 // 启动录屏
 ipcMain.handle('start-screen-record', async (_, deviceId: string, fileName: string) => {
+  safeLog('start-screen-record', deviceId, fileName)
   try {
-    const adbPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
-      : path.join(__dirname, '../../resources/adb', process.platform === 'win32' ? 'adb.exe' : 'adb')
+    const adbPath = getAdbPath()
+    
+    // 验证ADB路径是否存在
+    const fs = require('fs')
+    if (!fs.existsSync(adbPath)) {
+      safeErrorLog('ADB路径不存在:', adbPath)
+      throw new Error(`ADB路径不存在: ${adbPath}`)
+    }
+    
+    safeLog('ADB路径验证成功:', adbPath)
     
     // 如果已有录屏进程在运行，先停止
     if (screenRecordProcess) {
       screenRecordProcess.kill('SIGINT')
       screenRecordProcess = null
+      console.log('writeScreenRecordStatus, start-screen-record, 已存在先停止')
+      await writeScreenRecordStatus({ isRecording: false, deviceId: null })
     }
     
-    // 启动录屏进程
-    const command = `${adbPath} -s ${deviceId} shell screenrecord /sdcard/${fileName}`
+    // 启动录屏进程 - 使用spawn但正确处理路径
+    const command = `"${adbPath}" -s ${deviceId} shell screenrecord /sdcard/${fileName}`
     safeLog('启动录屏命令:', command)
     
-    screenRecordProcess = spawn(command, [], {
-      shell: true,
+    // 使用spawn但传递参数数组而不是字符串，避免路径解析问题
+    const args = ['-s', deviceId, 'shell', 'screenrecord', `/sdcard/${fileName}`]
+    safeLog('spawn参数:', { adbPath, args })
+    screenRecordProcess = spawn(adbPath, args, {
       stdio: ['pipe', 'pipe', 'pipe']
     })
     
-    currentRecordingDevice = deviceId
+    console.log('writeScreenRecordStatus, start-screen-record, 写入录屏状态， deviceId:', deviceId)
+    await writeScreenRecordStatus({ isRecording: true, deviceId })
     
     // 监听进程输出
     screenRecordProcess.stdout?.on('data', (data: Buffer) => {
@@ -846,21 +1056,24 @@ ipcMain.handle('start-screen-record', async (_, deviceId: string, fileName: stri
     })
     
     // 监听进程退出
-    screenRecordProcess.on('close', (code: number) => {
-      safeLog('录屏进程退出，代码:', code)
+    screenRecordProcess.on('close', async (code: number) => {
       screenRecordProcess = null
-      currentRecordingDevice = null
+      console.log('录屏进程退出，writeScreenRecordStatus, 代码:', code)
+      await writeScreenRecordStatus({ isRecording: false, deviceId: null })
     })
     
-    screenRecordProcess.on('error', (error: Error) => {
-      safeErrorLog('录屏进程错误:', error)
+    screenRecordProcess.on('error', async (error: Error) => {
+      safeErrorLog('writeScreenRecordStatus, 录屏进程错误:', error)
       screenRecordProcess = null
-      currentRecordingDevice = null
+      console.log('录屏进程错误, writeScreenRecordStatus, error:', error)
+      await writeScreenRecordStatus({ isRecording: false, deviceId: null })
     })
     
-    return { success: true, data: '录屏已启动' }
+    return { success: true, data: '录屏已启动, 当前录屏设备: ' + deviceId + ', 当前录屏文件: ' + fileName + ', 当前录屏进程: ' + screenRecordProcess }
   } catch (error: any) {
-    safeErrorLog('启动录屏失败:', error)
+    safeErrorLog('writeScreenRecordStatus, 启动录屏失败:', error)
+    console.log('启动录屏失败, writeScreenRecordStatus, error:', error)
+    await writeScreenRecordStatus({ isRecording: false, deviceId: null })
     return { success: false, error: error.message }
   }
 })
@@ -868,10 +1081,25 @@ ipcMain.handle('start-screen-record', async (_, deviceId: string, fileName: stri
 // 停止录屏
 ipcMain.handle('stop-screen-record', async (_, deviceId: string, fileName: string) => {
   try {
-    if (!screenRecordProcess || currentRecordingDevice !== deviceId) {
-      return { success: false, error: '没有找到对应的录屏进程' }
+    safeLog('stop-screen-record', deviceId, fileName)
+    const status = await readScreenRecordStatus()
+    if (!screenRecordProcess) {
+      if (status.deviceId !== deviceId) {
+        return { success: false, error: '没有找到对应的录屏进程, 当前录屏进程: ' + screenRecordProcess + ', 当前录屏设备: ' + status.deviceId + ', 目标设备: ' + deviceId }
+      } else {
+        const adbPath = getAdbPath()
+          
+          // 变量丢失时，尝试强制杀掉设备端进程
+          safeLog('writeScreenRecordStatus, 未找到本地录屏进程，尝试强制终止设备端进程')
+          const killCommand = `"${adbPath}" -s ${deviceId} shell pkill -INT screenrecord`
+          safeLog('强制终止设备端进程命令:', killCommand)
+          await execAsync(killCommand)
+          console.log('writeScreenRecordStatus, 未找到本地录屏进程，尝试强制终止设备端进程')
+          await writeScreenRecordStatus({ isRecording: false, deviceId: null })
+          return { success: true, data: '已尝试强制终止设备端录屏进程' }
+      }
     }
-    
+
     safeLog('停止录屏进程...')
     
     // 发送 SIGINT 信号（相当于 Ctrl+C）
@@ -892,22 +1120,39 @@ ipcMain.handle('stop-screen-record', async (_, deviceId: string, fileName: strin
     })
     
     screenRecordProcess = null
-    currentRecordingDevice = null
+    console.log('writeScreenRecordStatus, 录屏进程已停止')
+    await writeScreenRecordStatus({ isRecording: false, deviceId: null })
     
     // 等待文件写入完成
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    
+    // 检查设备上的文件是否存在
+    try {
+      const adbPath = getAdbPath()
+      const checkCommand = `"${adbPath}" -s ${deviceId} shell ls -la /sdcard/${fileName}`
+      const checkResult = await execAsync(checkCommand, { timeout: 10000 })
+      
+      if (checkResult.stdout.includes('No such file') || checkResult.stdout.includes('not found')) {
+        safeLog('录屏文件不存在，可能录屏时间太短')
+        return { success: true, data: '录屏已停止，但文件可能未生成（录屏时间太短）' }
+      }
+      
+      safeLog('录屏文件存在，可以继续拉取')
+    } catch (checkError) {
+      safeLog('检查录屏文件存在性时出错:', checkError)
+      // 即使检查失败，也认为停止成功
+    }
     
     return { success: true, data: '录屏已停止' }
   } catch (error: any) {
-    safeErrorLog('停止录屏失败:', error)
+    safeErrorLog('writeScreenRecordStatus, 停止录屏失败:', error)
+    console.log('writeScreenRecordStatus, 停止录屏失败:', error)
+    await writeScreenRecordStatus({ isRecording: false, deviceId: null })
     return { success: false, error: error.message }
   }
 })
 
 // 获取录屏状态
-ipcMain.handle('get-screen-record-status', () => {
-  return {
-    isRecording: screenRecordProcess !== null,
-    deviceId: currentRecordingDevice
-  }
+ipcMain.handle('get-screen-record-status', async () => {
+  return await readScreenRecordStatus()
 }) 

@@ -15,7 +15,8 @@ import {
   Tooltip,
   Spin,
   Row,
-  Col
+  Col,
+  Popconfirm
 } from 'antd'
 import { 
   ReloadOutlined, 
@@ -28,7 +29,8 @@ import {
   SettingOutlined,
   ThunderboltOutlined,
   ApiOutlined,
-  CopyOutlined
+  CopyOutlined,
+  CloseOutlined
 } from '@ant-design/icons'
 import { useDevice, Device } from '../contexts/DeviceContext'
 import { DeviceSorter } from '../utils/DeviceSorter'
@@ -52,6 +54,10 @@ const DeviceManager: React.FC = () => {
   const [hardwareInfoModalVisible, setHardwareInfoModalVisible] = useState(false)
   const [selectedDeviceInfo, setSelectedDeviceInfo] = useState<Record<string, string>>({})
   const [loadingHardwareInfo, setLoadingHardwareInfo] = useState(false)
+  const [ipHistory, setIpHistory] = useState<string[]>([])
+  const [showIpHistory, setShowIpHistory] = useState(false)
+  const [connecting, setConnecting] = useState(false)
+  const connectAbortRef = useRef<{ aborted: boolean }>({ aborted: false })
   
   // 创建设备排序器实例
   const deviceSorter = React.useMemo(() => new DeviceSorter(), [])
@@ -60,6 +66,8 @@ const DeviceManager: React.FC = () => {
   const prevDevicesRef = useRef<Device[]>([])
 
   const location = useLocation()
+
+  const DEVICE_BLACKLIST_KEY = 'adbToolsDeviceBlacklist'
 
   // 检测设备变化（连接和断开）
   const detectDeviceChanges = (currentDevices: Device[]) => {
@@ -149,13 +157,17 @@ const DeviceManager: React.FC = () => {
   // 解析ADB设备列表输出
   const parseDeviceList = (output: string): Device[] => {
     const lines = output.split('\n').filter(line => line.trim() && !line.includes('List of devices'))
+    let blacklist: string[] = []
+    try {
+      const local = localStorage.getItem(DEVICE_BLACKLIST_KEY)
+      if (local) blacklist = JSON.parse(local)
+    } catch {}
     const devices: Device[] = []
-
     for (const line of lines) {
       const parts = line.trim().split(/\s+/)
       if (parts.length < 2) continue
-
       const deviceId = parts[0]
+      if (blacklist.includes(deviceId)) continue // 跳过黑名单
       const status = parts[1] as Device['status']
       
       // 解析设备信息
@@ -224,64 +236,105 @@ const DeviceManager: React.FC = () => {
     }
   }
 
+  const IP_HISTORY_KEY = 'adbToolsIpHistory'
+
+  // 加载历史记录
+  useEffect(() => {
+    if (wifiModalVisible) {
+      const local = localStorage.getItem(IP_HISTORY_KEY)
+      if (local) {
+        try {
+          setIpHistory(JSON.parse(local))
+        } catch {
+          setIpHistory([])
+        }
+      } else {
+        setIpHistory([])
+      }
+      setShowIpHistory(false)
+    }
+  }, [wifiModalVisible])
+
+  // 添加IP到历史记录
+  const addIpToHistory = (ip: string) => {
+    const cleanIp = ip.trim()
+    if (!cleanIp) return
+    setIpHistory(prev => {
+      const filtered = prev.filter(item => item !== cleanIp)
+      const newHistory = [cleanIp, ...filtered].slice(0, 10)
+      localStorage.setItem(IP_HISTORY_KEY, JSON.stringify(newHistory))
+      return newHistory
+    })
+  }
+
+  // 删除单条历史记录
+  const removeIpFromHistory = (ip: string) => {
+    setIpHistory(prev => {
+      const newHistory = prev.filter(item => item !== ip)
+      localStorage.setItem(IP_HISTORY_KEY, JSON.stringify(newHistory))
+      return newHistory
+    })
+  }
+
   const connectWifi = async () => {
     if (!wifiAddress) {
       message.error('请输入有效的IP地址')
       return
     }
-    
+    setConnecting(true)
+    connectAbortRef.current.aborted = false
     try {
-      // 确保地址包含端口号，如果没有则添加默认端口5555
       let fullAddress = wifiAddress.trim()
       if (!fullAddress.includes(':')) {
         fullAddress = `${fullAddress}:5555`
       }
-      
       message.loading('正在连接设备...', 0)
-      
-      console.log(`尝试连接到: ${fullAddress}`)
-      
-      // 首先尝试连接到设备
+      if (connectAbortRef.current.aborted) {
+        message.destroy()
+        setConnecting(false)
+        return
+      }
       const connectResult = await window.adbToolsAPI.execAdbCommand(`connect ${fullAddress}`)
-      
-      console.log('连接结果:', connectResult)
-      
+      if (connectAbortRef.current.aborted) {
+        message.destroy()
+        setConnecting(false)
+        return
+      }
       if (!connectResult.success) {
         message.destroy()
-        // 提供更详细的错误信息
         let errorMsg = connectResult.error || '连接失败'
-        
         if (errorMsg.includes('cannot connect')) {
           errorMsg = `无法连接到 ${fullAddress}。请检查：\n1. 设备和电脑是否在同一WiFi网络\n2. 设备是否已开启WiFi调试\n3. IP地址是否正确`
         } else if (errorMsg.includes('Connection refused')) {
           errorMsg = `连接被拒绝。请确保设备已执行 'adb tcpip 5555' 命令开启WiFi调试`
         }
-        
         throw new Error(errorMsg)
       }
-      
       message.destroy()
-      
       const resultData = connectResult.data?.toLowerCase() || ''
-      
       if (resultData.includes('connected') || resultData.includes('already connected')) {
+        addIpToHistory(wifiAddress)
         message.success(`WiFi连接成功: ${fullAddress}`)
         setWifiModalVisible(false)
         setWifiAddress('')
-        // 重新获取设备列表
+        setConnecting(false)
         setTimeout(() => refreshDevices(), 1500)
       } else if (resultData.includes('failed')) {
         throw new Error(`连接失败: ${connectResult.data}`)
       } else {
-        // 有时连接成功但消息不明确，尝试检查设备列表
         message.loading('验证连接状态...', 0)
         setTimeout(async () => {
+          if (connectAbortRef.current.aborted) {
+            message.destroy()
+            setConnecting(false)
+            return
+          }
           try {
             await refreshDevices()
             const connectedDevice = devices.find(d => d.id.includes(fullAddress.split(':')[0]))
             message.destroy()
-            
             if (connectedDevice) {
+              addIpToHistory(wifiAddress)
               message.success(`WiFi连接成功: ${fullAddress}`)
               setWifiModalVisible(false)
               setWifiAddress('')
@@ -292,9 +345,9 @@ const DeviceManager: React.FC = () => {
             message.destroy()
             message.error('连接状态验证失败')
           }
+          setConnecting(false)
         }, 2000)
       }
-      
     } catch (error: any) {
       message.destroy()
       console.error('WiFi连接失败:', error)
@@ -302,7 +355,15 @@ const DeviceManager: React.FC = () => {
         content: `WiFi连接失败: ${error.message}`,
         duration: 6
       })
+      setConnecting(false)
     }
+  }
+
+  // 取消连接
+  const cancelConnect = () => {
+    connectAbortRef.current.aborted = true
+    setConnecting(false)
+    message.destroy()
   }
 
   const connectEthernet = async () => {
@@ -696,17 +757,48 @@ const DeviceManager: React.FC = () => {
     })
   }
 
+  // 删除设备（前端移除并移除相关IP历史）
+  const removeDevice = (id: string) => {
+    setDevices(devices.filter((d: Device) => d.id !== id))
+    if (selectedDevice?.id === id) {
+      setSelectedDevice(null)
+    }
+    // 从IP历史中移除相关记录
+    let ipHistoryArr: string[] = []
+    try {
+      const local = localStorage.getItem(IP_HISTORY_KEY)
+      if (local) ipHistoryArr = JSON.parse(local)
+    } catch {}
+    // 只要历史IP包含设备ID（如192.168.1.100:5555），就移除
+    const newIpHistory = ipHistoryArr.filter(ip => !ip.includes(id.split(':')[0]))
+    localStorage.setItem(IP_HISTORY_KEY, JSON.stringify(newIpHistory))
+    setIpHistory(newIpHistory)
+  }
+
   const columns = [
     {
       title: '设备序列号',
       dataIndex: 'serialNumber',
       key: 'serialNumber',
-      render: (serial: string) => <Text code>{serial}</Text>
+      render: (serial: string, record: Device) => (
+        <span>
+          {selectedDevice?.id === record.id && (
+            <CheckCircleOutlined style={{ color: '#52c41a', marginRight: 8, fontSize: 20, verticalAlign: 'middle' }} />
+          )}
+          <Text code>{serial}</Text>
+        </span>
+      )
     },
     {
       title: '设备名',
       dataIndex: 'device',
       key: 'device'
+    },
+    {
+      title: '连接状态',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status: Device['status']) => getStatusTag(status)
     },
     {
       title: '连接方式',
@@ -740,24 +832,27 @@ const DeviceManager: React.FC = () => {
               await getDeviceHardwareInfo(record.id)
               setHardwareInfoModalVisible(true)
             }}
+            disabled={record.status !== 'device'}
+            style={record.status === 'device'
+              ? { background: '#f0f5ff', color: '#2f54eb', borderRadius: 4, border: '1px solid #adc6ff', padding: '0 12px' }
+              : { background: '#f5f5f5', color: '#bfbfbf', borderRadius: 4, border: '1px solid #f0f0f0', padding: '0 12px', cursor: 'not-allowed' }
+            }
           >
             软硬件信息
           </Button>
-          {record.status === 'device' && (
-            <Button 
-              type={selectedDevice?.id === record.id ? "default" : "primary"}
-              size="small"
-              onClick={() => selectDevice(record)}
-              disabled={selectedDevice?.id === record.id}
-            >
-              {selectedDevice?.id === record.id ? '已选中' : '选择'}
-            </Button>
-          )}
           {record.status === 'unauthorized' && (
             <Button type="link" size="small" danger>
               重新授权
             </Button>
           )}
+          <Popconfirm
+            title="确定要从列表中移除此设备吗？"
+            onConfirm={() => removeDevice(record.id)}
+            okText="确定"
+            cancelText="取消"
+          >
+            <Button type="text" size="small" danger style={{ background: '#fff1f0', color: '#cf1322', borderRadius: 4, border: '1px solid #ffa39e', padding: '0 12px' }}>移除</Button>
+          </Popconfirm>
         </Space>
       )
     }
@@ -805,22 +900,12 @@ const DeviceManager: React.FC = () => {
               刷新设备
             </Button>
           </Col>
-        </Row>
-        <Row gutter={16} align="middle" style={{ marginTop: 16 }}>
           <Col>
             <Button 
               icon={<WifiOutlined />}
               onClick={() => setWifiModalVisible(true)}
             >
-            WiFi连接
-            </Button>
-          </Col>
-          <Col>
-            <Button 
-              icon={<ApiOutlined />}
-              onClick={() => setEthernetModalVisible(true)}
-            >
-              以太网连接
+              连接设备
             </Button>
           </Col>
           <Col>
@@ -883,7 +968,7 @@ const DeviceManager: React.FC = () => {
 
       {/* WiFi连接对话框 */}
       <Modal
-        title="WiFi连接设备"
+        title="连接设备"
         open={wifiModalVisible}
         onOk={connectWifi}
         onCancel={() => {
@@ -911,21 +996,14 @@ const DeviceManager: React.FC = () => {
             网络诊断
           </Button>,
           <Button 
-            key="cancel" 
-            onClick={() => {
-              setWifiModalVisible(false)
-              setWifiAddress('')
-            }}
-          >
-            取消
-          </Button>,
-          <Button 
             key="connect" 
             type="primary" 
-            onClick={connectWifi}
-            disabled={!wifiAddress}
+            disabled={connecting ? false : !wifiAddress}
+            icon={connecting ? <Spin size="small" /> : null}
+            onClick={connecting ? cancelConnect : connectWifi}
+            style={connecting ? { background: '#f5f5f5', color: '#333', border: '1px solid #d9d9d9' } : {}}
           >
-            连接
+            {connecting ? '取消' : '连接'}
           </Button>
         ]}
       >
@@ -945,8 +1023,7 @@ const DeviceManager: React.FC = () => {
             type="info"
             showIcon
           />
-          
-          <div>
+          <div style={{ position: 'relative' }}>
             <Text strong>设备IP地址:</Text>
             <Input
               placeholder="例如: 192.168.1.100 或 172.17.4.111"
@@ -959,111 +1036,28 @@ const DeviceManager: React.FC = () => {
                   :5555
                 </Text>
               }
+              onFocus={() => setShowIpHistory(true)}
+              onBlur={() => setTimeout(() => setShowIpHistory(false), 200)}
             />
+            {/* 历史记录下拉展示 */}
+            {ipHistory.length > 0 && showIpHistory && (
+              <div style={{ marginTop: 8, position: 'absolute', background: '#fff', zIndex: 1000, width: '100%', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', borderRadius: 4, border: '1px solid #eee' }}>
+                <Text type="secondary" style={{ fontSize: '12px', marginLeft: 8 }}>历史记录：</Text>
+                <Space direction="vertical" style={{ width: '100%' }} size={4}>
+                  {ipHistory.map(ip => (
+                    <div key={ip} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 8px', cursor: 'pointer' }}
+                      onMouseDown={() => { setWifiAddress(ip); setShowIpHistory(false); }}>
+                      <span>{ip}</span>
+                      <Button type="text" size="small" danger onMouseDown={e => { e.stopPropagation(); removeIpFromHistory(ip); }} icon={<CloseOutlined />} />
+                    </div>
+                  ))}
+                </Space>
+              </div>
+            )}
             <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginTop: 4 }}>
               如果不包含端口号，将自动添加 :5555
             </Text>
           </div>
-
-          <Alert
-            message="常见问题"
-            description={
-              <div>
-                <Text type="secondary">• 连接被拒绝：请确保已执行 adb tcpip 5555</Text><br/>
-                <Text type="secondary">• 无法连接：检查防火墙设置和网络连接</Text><br/>
-                <Text type="secondary">• IP地址错误：在设备设置中确认正确的IP地址</Text>
-              </div>
-            }
-            type="warning"
-            showIcon
-          />
-        </Space>
-      </Modal>
-
-      {/* 以太网连接对话框 */}
-      <Modal
-        title="以太网连接设备"
-        open={ethernetModalVisible}
-        onOk={connectEthernet}
-        onCancel={() => {
-          setEthernetModalVisible(false)
-          setEthernetAddress('')
-        }}
-        okText="连接"
-        cancelText="取消"
-        width={600}
-        footer={[
-          <Button 
-            key="enable-ethernet" 
-            icon={<ThunderboltOutlined />}
-            loading={enablingEthernetDebug}
-            onClick={enableEthernetDebug}
-            title="对USB连接的设备执行 adb tcpip 5555 启用网络调试"
-          >
-            启用网络调试
-          </Button>,
-          <Button 
-            key="diagnose" 
-            loading={diagnosing}
-            onClick={diagnoseWifiConnection}
-          >
-            网络诊断
-          </Button>,
-          <Button 
-            key="cancel" 
-            onClick={() => {
-              setEthernetModalVisible(false)
-              setEthernetAddress('')
-            }}
-          >
-            取消
-          </Button>,
-          <Button 
-            key="connect" 
-            type="primary" 
-            onClick={connectEthernet}
-            disabled={!ethernetAddress}
-          >
-            连接
-          </Button>
-        ]}
-      >
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <Alert
-            message="以太网调试连接步骤"
-            description={
-              <div>
-                <Text>1. 确保设备和电脑连接在同一网络</Text><br/>
-                <Text>2. 在设备上打开开发者选项，启用"USB调试"</Text><br/>
-                <Text>3. 通过USB连接设备，点击下方"启用网络调试"按钮</Text><br/>
-                <Text>   <Text type="secondary">(等同于执行命令：adb tcpip 5555)</Text></Text><br/>
-                <Text>4. 在设备的设置 → 关于手机 → 状态信息中查看IP地址</Text><br/>
-                <Text>5. 输入IP地址进行网络连接</Text>
-              </div>
-            }
-            type="info"
-            showIcon
-          />
-          
-          <div>
-            <Text strong>设备IP地址:</Text>
-            <Input
-              placeholder="例如: 192.168.1.100 或 172.17.4.111"
-              value={ethernetAddress}
-              onChange={(e: any) => setEthernetAddress(e.target.value)}
-              onPressEnter={connectEthernet}
-              style={{ marginTop: 8 }}
-              suffix={
-                <Text type="secondary" style={{ fontSize: '12px' }}>
-                  :5555
-                </Text>
-              }
-            />
-            <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginTop: 4 }}>
-              如果不包含端口号，将自动添加 :5555
-            </Text>
-          </div>
-
           <Alert
             message="常见问题"
             description={
